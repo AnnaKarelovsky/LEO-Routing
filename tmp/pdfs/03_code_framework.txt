@@ -1,0 +1,1151 @@
+   8996                                                                             IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+
+               Continual Deep Reinforcement Learning for
+                     Decentralized Satellite Routing
+          Federico Lozano-Cuadra , Beatriz Soret , Senior Member, IEEE, Israel Leyva-Mayorga , Member, IEEE,
+                                           and Petar Popovski , Fellow, IEEE
+
+      Abstract—This paper introduces a full solution for decentral-                  (LSatCs) are turning into packet-based Non-Terrestrial Net-
+   ized routing in Low Earth Orbit Satellite Constellations (LSatCs)                 works (NTN) capable of providing ubiquitous sensing,
+   based on continual Deep Reinforcement Learning (DRL),                             navigation, positioning, and communication services towards
+   specifically designed for on-board implementation in satellites
+   with limited computational and communication resources. This                      6G. From a network perspective, end-to-end (E2E) packet
+   requires addressing multiple challenges, including the partial                    routing in the LSatC refers to finding appropriate paths to
+   knowledge at the satellites and their continuous movement, and                    interconnect source-destination pairs, where each satellite is a
+   the time-varying sources of uncertainty in the system, such                       router and the ground stations (GSs) are the end-points. This is
+   as traffic, communication links, or communication buffers. We                     a complex and dynamic problem with unique characteristics as
+   follow a multi-agent approach, where each satellite acts as an
+   independent decision-making agent, while acquiring a limited                      follows [1], [2]: (1) The topology is dynamic yet predictable,
+   knowledge of the environment based on the feedback received                       with frequent link disruptions as the satellites move. (2) The
+   from the nearby agents. The solution is divided into two phases.                  propagation delays are high due to the large distances. (3)
+   First, an offline learning phase relies on decentralized decisions                The injected terrestrial traffic is dynamic, imbalanced and not
+   and a global Deep Neural Network (DNN) trained with global                        readily predictable. A space routing solution should strive for
+   experiences to learn the optimal paths. Then, the online phase
+   with local, on-board, and pre-trained DNNs requires continual                     being resilient against the various sources of uncertainty (links,
+   learning to evolve with the environment, which can be done                        traffic, buffers) and operate under partial knowledge of each
+   in two different ways: 1) Model anticipation, where the pre-                      individual satellite. In addition, routing should account for
+   dictable conditions of the constellation, resulting from its orbital              the constrained computing and communication resources at
+   dynamics, are exploited by each satellite sharing local model                     the spacecraft, and the limited connectivity with the ground
+   with the next satellite; and 2) Federated Learning (FL), where
+   each agent’s model is merged first at the cluster level and then                  infrastructure, i.e., the GSs. This setup motivates investigation
+   aggregated in a global Parameter Server (PS) at ground or at a                    of a learning-based distributed solution to attain a complex
+   geostationary orbit (GEO) satellite. Results from simulations with                balance among performance, system knowledge, uncertainty,
+   State-of-the-Art (SoA) constellations such show that the proposed                 and hardware constraints.
+   approach converges in less than a second to similar end-to-end                       Solving the routing problem typically entails modeling
+   (E2E) latency than the shortest-path centralized approach with
+   full knowledge of the network. Moreover, the Centered Kernel                      the network as a graph, where the nodes are the network
+   Alignment (CKA) metric quantifies the necessary alignment of                      elements and the edges are the communication links. The
+   the models when the dynamics of the environment change.                           LSatC graph is intrinsically time-variant: Satellites can main-
+     Index Terms—Routing, satellite communication, reinforce-                        tain two intra-plane and two inter-plane ISL with the first
+   ment learning (RL), multi-agent deep reinforcement learning                       neighbours, which might change over time, plus the ground-
+   (MA-DRL), federated learning (FL), low earth orbit satellite                      to-satellite link (GSL) when a GS is visible during the pass.
+   constellations (LSatCs), decentralized routing, continual learning.               Thus, the set of nodes and edges involves satellites and
+                                                                                     GSs, and ISLs and GSLs, respectively. While routing in
+                             I. I NTRODUCTION                                        satellite constellations can be solved centrally by assuming
+                                                                                     perfect knowledge of the queues [2], in practice, neither the
+   T       HROUGH the incremental adoption of the inter-satellite
+           link (ISL), Low Earth Orbit Satellite Constellations                      ground nor the space segment has real-time knowledge of
+                                                                                     the dynamic queuing times and traffic demands of the whole
+      Received 23 May 2024; revised 26 November 2024, 24 February 2025,              network. In addition, these can change over time in non-
+   and 4 April 2025; accepted 10 April 2025. Date of publication 18 April 2025;      stationary ways, such that it is impractical to work with
+   date of current version 20 October 2025. The work of Federico Lozano-
+   Cuadra and Beatriz Soret is partially funded by ESA SatNEx V (prime               routing algorithms that rely on global knowledge or strong
+   contract no. 4000130962/20/NL/NL/FE), and by the Spanish Ministerio de            assumptions of the satellite load and links evolution. Hence,
+   Ciencia, Innovación y Universidades (PID2022-136269OB-I00). The work of
+   Petar Popovski was supported, in part, by the Velux Foundation, Denmark,
+                                                                                     the main driver of our solution is to devise a simple con-
+   through the Villum Investigator Grant WATER, nr. 37793. The associate editor      tinual distributed learning approach for each satellite to take
+   coordinating the review of this article and approving it for publication was      decentralized decisions based on local observations and limited
+   C. Liu. (Corresponding author: Federico Lozano-Cuadra.)                           feedback.
+      Federico Lozano-Cuadra and Beatriz Soret are with the Telecommunica-
+   tions Research Institute, University of Málaga, 29071 Málaga, Spain (e-mail:       Building on our previous work in Q-routing [1] and Deep
+   flozano@ic.uma.es).                                                               Reinforcement Learning (DRL) [3], this paper proposes a
+      Israel Leyva-Mayorga and Petar Popovski are with the Department of
+   Electronic Systems, Aalborg University, 9220 Aalborg, Denmark.
+                                                                                     multi-agent continual learning framework for routing. This
+      Digital Object Identifier 10.1109/TCOMM.2025.3562522                           combines offline, global path calculations and online dis-
+                 0090-6778 © 2025 IEEE. All rights reserved, including rights for text and data mining, and training of artificial intelligence and
+                           similar technologies. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                                         See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                   8997
+
+
+
+
+   Fig. 1. Continual learning in LSatCs: (a) Model anticipation, (b) Federated Learning (FL), (c) Detail of FL aggregation.
+
+
+
+   tributed model updates where each satellite participates in a                  ing (FD-RL) for a concrete space application – routing.
+   data-driven aggregation for model alignment. Specifically, we                  Each satellite is continually training its pre-loaded model
+   use Q-learning, a model-free type of Reinforcement Learning                    using the new available local data set, i.e., the new pack-
+   (RL) that focuses on how agents interact with their environ-                   ets to be forwarded. Periodically, each agent’s Qi (θ) is
+   ment and learn to improve their behavior by taking actions for                 first aggregated at the cluster level Qo (θ), and then at
+   which they expect a reward, i.e., by trial and error.                          the Parameter Server (PS) which is the central orchestrator
+      The information exchange between agents can accelerate the                  in charge of the aggregation of Qg (θ) from outside the
+   learning speed as they get information about the congestion                    constellation (Fig. 1c), located either in a GS or a GEO
+   level of the network. Minimal multi-agent collaboration was                    satellite.
+   exploited in [3], which proposes the use of DRL for coping
+   with the large state space of a dense constellation and assumes
+   a network-wide training in a centralized node. The satellites                  A. Related Work
+   infer the next hop to forward an incoming packet, given the                       1) Machine Learning: The first learning area relevant for
+   network topology, the destination, and the partial knowledge                   this work is RL [5]. RL aims to train an agent to make
+   of the load and queues at the first neighbouring satellites.                   adequate decisions in a system, called the environment, from
+   The pre-trained Deep Neural Network (DNN) models are then                      pure experience. For problems with a discrete and small set of
+   uploaded on-board. However, these can diverge and face new                     possible actions, Q-Learning (QL) is a popular off-policy RL
+   challenges as time goes by and the environment evolves, for                    method where the agent does not learn the policy itself but just
+   example, with some non-functional nodes or traffic variations.                 keeps an updated table with the quality of each state-action
+   Therefore, this phase must be followed by an online update                     pair. As the complexity of the environment increases, DRL
+   of the models, for which we propose two options, enabling                      is a particular type of RL that exploits the power of multi
+   continual learning in the network:                                             layer deep neural networks for state representation and/or
+      Model anticipation: The first one leverages the predictability              function approximations [6]. Then, [7] and [8] introduce
+   of the constellation movement. At time t, each satellite i shares              Double Q-Learning (DQL) and its extension integrating DNN
+   its Q-Network Qi (θ) with the satellite behind within the orbit                with Double Deep Q-Learning (DDQN), respectively. These
+   i − 1, i.e., the one that will occupy a very close position in                 methodologies address the overestimation bias in QL, enhanc-
+   t + ∆t (see Fig. 1a). We call this option model anticipation.                  ing the stability and performance of learning in complex
+   This case minimizes the signaling and overhead, and it is                      environments, while remaining computationally efficient and
+   particularly interesting for networks with limited connectivity                well-suited for real-time, resource-constrained applications
+   with the ground segment or the geostationary orbit (GEO)                       such as on-board satellite routing.
+   layer. Moreover, the communication uses only the more stable                      On the other side, FL represents a paradigm shift towards
+   intra-plane ISL. However, the alignment is not at the network                  decentralized machine learning, enabling collaborative and
+   level and therefore should be complemented in the long-term                    decentralized model training while preserving data privacy that
+   with a network-wise aggregation.                                               can be integrated with RL [9]. Each agent has a model that can
+      Federated Learning (FL): The second option is FL (Fig.                      be pre-trained and improves it by updating it with local data.
+   1b), a decentralized collaborative approach for multiple agents                The local learnt information is summarized as a small focused
+   to train locally and build a shared model with low band-                       update sent to a central PS, which makes the aggregation either
+   width requirements. While there are previous works looking                     in a synchronous or asynchronous way [10]. FL is particularly
+   at the application of FL [4] in LSatC, this paper breaks a                     convenient for the cases where the data is generated in the
+   new ground by using Federated Deep Reinforcement Learn-                        form of isolated islands [11], which is the case in space [4].
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   8998                                                                       IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+   Recent works have explored the implementation of FL within                   constellations, demonstrating the potential of learning-based,
+   satellite clusters [4], [12].                                                energy-aware routing protocols. However, this model relies
+      To cope with real-world dynamics, an intelligent system                   on a network controller, which is an agent with real-time
+   must have the ability to incrementally learn without forgetting              full knowledge of the network. Similarly, [27] proposes a
+   knowledge acquired in the past, an ability termed contin-                    centralized DRL framework for reliable routing in Software-
+   ual learning or lifelong learning [13], [14]. Specifically, in               Defined Satellite Networking (SDSN)-based LEO satellite
+   domain-incremental learning the algorithm must learn the                     networks, achieving adaptability in dynamic environments.
+   same kind of task but in different contexts, e.g., due to a non-             However, like [26], it depends on a centralized controller
+   stationary stream of data. Despite the time-variant (and often               with real-time network knowledge. Reference [28] presented
+   non-stationary) nature of communication networks and traffic,                a fully distributed algorithm aiming to minimize the average
+   this topic has received little attention so far. In the case of              latency, although it does not explicitly address the ground
+   packet routing in LSatC, as the satellite moves and the traffic              segment, focusing solely in the space segment. The authors in
+   distribution changes, the forwarding rules must be updated to                [29] formulate a constrained-Multi-Agent Deep Reinforcement
+   reflect the changes in input-distribution. Recent papers have                Learning (MA-DRL) problem for the packet routing in an
+   looked at continual learning in communication problems such                  integrated satellite-terrestrial network, aiming at meeting delay
+   as resource allocation [15] and channel estimation [16]. Many                and energy constraints. The Space-Air-Ground Integrated Net-
+   other problems – including routing – remain unexplored.                      work (SAGIN) framework in [30] integrates multiple layers
+      2) Routing in LSatCs: Routing in space networks has been                  to support maritime communication for ships in the Atlantic.
+   investigated for many years, although there is lately a renewed              Reference [31] introduces a fully distributed, trustworthy load-
+   interest in the topic due to the increasing complexity of                    balancing routing scheme using a multi-agent D3QN model.
+   the space missions, the need to move from proprietary to                     However, its extensive state space demands data from distant
+   standardized NTNs solutions, and the increasing intelligence                 nodes, increasing communication overhead and computational
+   of the network. There are two main strategies to address                     complexity. Reference [32] integrates the mean field theory
+   routing [17], static and dynamic. The static routing schemes                 in the interaction among agents and their neighbors and
+   lies on the idea of addressing a changing network in a static                subsequently formulated the conventional deep Q-Learning
+   manner by using Virtual Topology (VT) [18] or Virtual Node                   (DQN) for training individual satellites and ground stations.
+   (VN) based methods [19]. In both approaches, VT and VN,                      Although the average latency is considered, the queues are
+   the network is defined fixed in certain time periods or areas                not modeled. Reference [33] presents a Graph Neural Network
+   and both rely on centralized routing calculations. Therefore                 (GNN)-enhanced MA-DRL routing whose reward calculation
+   each satellite has to store routing tables according to time and             is based on computing the shortest path for both the current
+   position, making it challenging and load-expensive to update                 and the next-hop node to the destination. Finally, [34] proposes
+   all the network simultaneously due to the needed signaling.                  a stigmergy multi-agent hierarchical DRL routing with focus
+   Reference [20] proposes that the signaling needed to update                  on a pheromone-based reward mechanism for agent collabo-
+   the tables can be reduced assuming that the network changes                  ration, but lacks architectural details, making reproducibility
+   are predictable, however, link failures and congestion due to                and complexity evaluation difficult. Regarding the use of FL,
+   traffic load changes are not considered.                                     [35] studies the reduction of communication overhead with
+      Dynamic routing was first studied in the context of ad-                   a mixed of partial and global aggregations. However, while
+   hoc terrestrial networks, specifically Destination Sequenced                 they learn to activate and deactivate the inter-satellite links,
+   Distance Vector (DSDV) [21] and Ad hoc On-demand Dis-                        the actual routing relies on Dijkstra’s algorithm [36] which
+   tance Vector (AODV) routing protocols [22] use proactive                     necessitates centralized knowledge of the network.
+   and reactive principles, respectively. In general, most current                 The existing literature lacks a full MA-DRL solution with
+   dynamic routing strategies rely on data packets flooding and                 continual learning for on-board routing in a LSatC with
+   broadcasting, consuming too much satellite computational                     non-stationary data, considering the three main sources of
+   resource and network bandwidth [23].                                         uncertainty – the links, the buffers, and the traffic – and
+      Alternatively, RL-based routing algorithms allow to have                  the limited knowledge at each satellite. In this paper, we
+   a dynamic routing strategy where each agent – the satellite                  build upon our previous work in [1], where we proposed a
+   – takes autonomous forwarding decisions based on partial                     decentralized Q-routing algorithm that was then extended into
+   observations. Specifically, Q-Routing (QR) is a distributed                  a MA-DRL framework [3]. We focus now in the lifelong
+   and autonomous packet routing algorithm based on QL and                      learning of the routing by proposing a MA-DRL for in-
+   first proposed in [24]. Building on this work, [25] proposed                 orbit learning based on FL, enabling incremental learning and
+   a distributed QL-based routing algorithm for LSatCs where                    dynamic knowledge sharing among satellites.
+   each node is a different agent and the routing strategy is
+   updated in a distributed manner. This is similar to our initial              B. Contributions and Organization
+   work in [1], but in [25] the Q-tables lack of positioning                      The main contributions of this paper are:
+   and congestion information, plus they have to be re-trained                    • We model routing over a LSatC consid路由建模，
+   as the satellites move. This lack of flexibility is solved                     ering data packets
+   with the introduction of DNNs. Reference [26] proposes a                          from a ground source to a ground destination through the
+   centralized DRL-based routing protocols in satellite mega-                        constellation, the space and ground time-varying links,
+                                                                                     and the communication buffers.
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                   8999
+
+
+
+      • We formulate a Partially Observable Markov Decision                     satellites in different orbital planes through inter-plane ISL
+        Problem (POMDP) for taking routing decisions in LSatCs                  [37]. We denote EiS the set of feasible inter-satellite edges
+        with low E2E delay. Each satellite acts as an agent of                  of satellite i, i.e., the ISL that are currently available for
+        the MA-DRL framework, with the actions being the next                   communication. EiS has a maximum size of four: |EiS | ≤ 4.
+        hop (agent) to forward the packet. Minimal feedback                     The set of all edges connected to satellite i, denoted as Ei , may
+        from nearby agents is designed to cope with the limited                 include a GSL, having a maximum size of five: |Ei |S≤ 5. ES
+        observability and communication resources.                              is the set of edges of the space segment, i.e., ES = i∈S EiS .
+      • We propose a continual learning framework that adapts                   Choosing the best set of feasible ISL links EiS for each satellite
+        to the evolving environment. The initial offline phase                  i at each time instant is a dynamic matching problem. For a
+        combines decentralized decisions with global training,                  constellation with a uniform grid a greedy approach is applied
+        while the online, on-board phase relies on pre-trained,                 as follows: Each satellite establishes intra-plane ISL with
+        low-complexity DNNs and operates over a long time                       its immediate upper and lower neighbours within the orbital
+        span. During the online, a short-term model anticipation                plane. For inter-plane connectivity, a satellite reaches out to
+        exploits the predictability of the satellite movements, and             the closest counterparts in adjacent planes to the east and west,
+        a FL performs model aggregation for long-term alignment                 prioritizing proximity to minimize latency and optimize data
+        of the models.                                                          rates. This iterative process must consider the bidirectionality
+      • We verify the potential of our proposal with extensive                  of the links. Otherwise, for general constellations, we apply
+        simulations of the offline, online, and continual learning              the algorithm proposed in [37].
+        with state-of-the-art LSatCs.
+      The rest of the paper is organized as follows. Section II                 B. Ground Segment
+   introduces the communication system model. The learning                         The ground segment includes a set of gateways G dis-
+   framework is presented in III, with the offline and online                   tributed across the Earth, in locations denoted as (glat , glon )
+   phases described in Sections IV and V, respectively. The                     for g ∈ G, where glat and glon are the latitude and longitude,
+   proposal is evaluated in Section VI and concluding remarks                   respectively. The mobile devices at ground level communicate
+   are given in Section VII.                                                    with the constellation through these gateways, which collect
+                                                                                and aggregate the data from nearby users into relatively large
+                           II. S YSTEM M ODEL                                   packets that are transmitted to their linked satellite (a.k.a.
+      Although the LSatC is moving and the related communica-                   service link) [1].
+   tion parameters change with time, we omit the time index for                    Each gateway g ∈ G keeps one GSL with its closest satellite
+   notation simplicity. E2E routing takes place over a LSatC to                 i ∈ S at all times if it is within a visible range. This is denoted
+   connect two points (gateways) on Earth’s surface, integrating                as Eig ,Sand the group of GSLs constitute the set of GSL edges
+   space and ground segments into the communication network.                    EG = g∈G Eig . Therefore, there are three cases for the link ij
+   Mathematically, this is abstracted as a dynamic graph G(N , E)               between node i and node j: (1) i ∈ G and j ∈ S corresponds
+   formed by the set of nodes N and the set of edges E.                         to the uplink from a gateway to a satellite, and ij ∈ EG ; (2)
+                                                                                i ∈ S and j ∈ G corresponds to the downlink from a satellite
+                                                                                to a gateway, and ij ∈ EG ; (3) otherwise, both i and j are
+   A. Space Segment                                                             satellites and we have an ISL, and ij ∈ EiS ⊂ ES . The slant
+      The LSatC consists of N satellites evenly distributed across              range between nodes i and j is denoted as ||ij||. In a nutshell,
+   O orbital planes, forming a finite set of satellite nodes, S,                each satellite and each gateway is a different node in G, i.e,
+   and a set of edges, ES , representing the transmission links                 N = S ∪ G, and each ISL and each GSL is a different edge
+   between them. We remark that i ∈ {1, 2, . . . , N } indexes                  in G, i.e, E = ES ∪ EG .
+   the satellites and, since each satellite is a learning agent in
+   our model, it is later used to index agents in the learning                  C. Data Rate
+   framework. Each orbital plane o ∈ {1, 2, . . . , O}, typically                  The communication data rate between nodes i and j, for both
+   approximated as a circular orbit, is deployed at a given altitude            ISL and GSL, is selected for the feasible links as the highest
+   ho km above the Earth’s surface, at a given longitude o                     modulation and coding scheme that ensures reliable communi-
+   radians, has a given inclination δ, and consists of No = N/O                 cation given the current signal-to-noise ratio (SNR), and zero
+   evenly-spaced satellites. In the orbit, each satellite i pfollows            otherwise. To operate with realistic data rates, we denote {ρ}
+   a trajectory around Earth with orbital period To = 2π a3i /µ                 bits/s/Hz as the set of spectral efficiencies achievable in the
+   where ai is the semi-major axis and µ = 3.98x1014 m3 /s2 is                  DVB-S2 technology [1]. Moreover, let SNRmin (ρ) represent
+   the geocentric gravitational constant. Each satellite is equipped            the minimum SNR required for reliable communication with
+   with one antenna for ground-to-satellite communication and                   ρ. Assuming free-space path loss, the data rate for transmission
+   four antennas for inter-satellite communication. Two of the                  from i to j is calculated as:
+   latter antennas are located at both sides of the roll axis (i.e.,                                                                   
+                                                                                                              Pr (i, j)
+   front and back of the satellite) and are used to communicate                        R(i, j) = W max ρ :              ≥ SNRmin (ρ) , (1)
+   with immediate neighbours within the same orbital plane                                                    kB TS W
+   (intra-plane ISL). The other two antennas are located at both                where W is the bandwidth, Pr (i, j) denotes the power received
+   sides of the pitch axis and are used to communicate with                     by node j from i, including the antenna gains and free-space
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9000                                                                        IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+   path loss, kB is the Boltzmann’s constant, and TS is the system              ||ij|| from i to j. The total one-hop delay for the link from i
+   noise temperature.                                                           to j is written:
+                                                                                                                              B       ||ij||
+   D. Traffic Generation                                                                       D(i, j) = tq (i) +                   +        ,        (3)
+                                                                                                                            R(i, j)      c
+      We consider a scenario with realistic packet generation,
+                                                                                where D(i, j) denotes the total delay from node i to node
+   queuing, and transmission, where each gateway transmits an
+                                                                                j and c is the speed of light. This latency model accounts
+   equal amount of data among the rest of the gateways through
+                                                                                for varying traffic loads, where propagation time dominates in
+   the LSatC, which then distribute the data among the users
+                              (g)                                               non-congested LSatCs, but queue time quickly escalates under
+   connected to them. Let λUL be the uplink data generation (i.e.,
+                                                                                high traffic conditions [2].
+   arrival) rate at gateway g and λ∗ be the maximum supported
+   traffic load in the network, calculated from the uplink and
+   downlink
+         P GSL       rates. Next, we define the total traffic load as           G. Problem Formulation
+                 (g)
+   ` = g∈G λUL /λ∗ . Then, the amount of data transmitted to
+                                                                                   The routing problem involves delivering data packets p(d)
+   a gateway is the aggregation of contributions from the other
+                                                                                from any transmitting source gateway g ∈ G to any receiv-
+   gateways, assuming that the uplink traffic of each gateway is
+                                                                                ing destination gateway d ∈ G through the LSatC, aiming
+   split equally across the other |G| − 1 gateways:
+                                                                                at minimizing E2E latency while being robust against the
+                                (i)
+                               λUL     `λ∗ − λUL
+                                                    (g)                         inherent uncertainties of the network. Moreover, it must opti-
+            (g)
+                     X
+          λDL =                      =           ≤ R(i, g),              (2)    mize computing and energy resources while minimizing the
+                             |G| − 1    |G| − 1
+                   i∈G\{g}                                                      communication overhead. The classical centralized problem,
+             (g)                                                                denoted as P, is formulated as follows:
+   where λDL is the arrival rate at gateway g and R(i, g) is the
+   downlink data rate for gateway g. Data is generated at the
+                                                            (g)                                       |Pgd |
+   gateways following a Poisson distribution with rate λUL and                                        X
+   a block of Bbits is sent when a source gateway has B bits for                          P : min              Dp (g, d),     ∀g, d ∈ G, g 6= d     (4a)
+                                                                                               Rgd
+                                                                                                      p=1
+   the same destination gateway. P is the set of packets transiting
+   the network.                                                                                s.t.     fij ≤ R(i, j), ∀i, j ∈ N ,                  (4b)
+                                                                                                          X           X
+                                                                                                              fji =        fik , ∀i ∈ S,            (4c)
+   E. Routing                                                                                           ej ∈EiS             ek ∈EiS
+
+      The routing algorithm at each satellite i aims at relaying                                        fii = 0,      ∀i ∈ N ,                      (4d)
+   each received packet p(d) towards the destination d. If i is
+                                                                                where R is the set of all possible routes or paths for routing
+   directly connected to d, p(d) is forwarded there, otherwise the
+                                                                                data packets, Rgd ⊆ R is the subset of routes to be optimized
+   routing decision is taken in a decentralized manner at each
+                                                                                for each gateway-destination pair, gd, and Pgd is the set of
+   node. Each satellite is equipped with a transmission buffer
+                                                                                all packets going from source g to destination d. Dp (g, d)
+   with a maximum capacity of Qmax , operating under a first-
+                                                                                is the E2E latency experienced by each packet pp traveling
+   in first-out (FIFO) strategy. If the buffer is not empty, the
+                                                                                from the source gateway g to the destination gateway d
+   satellite takes the Head of Line packet and delivers it to one
+                                                                                through the LSatC. fij represents the traffic flow, given in b/s,
+   of its linked nodes. Any packet arriving at a full buffer will
+                                                                                between both nodes and eij represents a direct bidirectional
+   be dropped. The set of nodes visited by p is denoted by Pp .
+                                                                                edge between them. In the constraints, Eq.(4b) states that the
+                                                                                total traffic flow fij between nodes i and j cannot exceed
+   F. Latency                                                                   the capacity, given by the achievable data rate R(i, j), which
+      The one-hop latency to transmit a packet p of length B bits               is 0 if nodes do not share a bidirectional direct link (see
+   from i to j is computed as follows. First, the queue time at the             Eq.(1)); Eq.(4c) is about flow conservation, i.e., the sum of
+   transmission queue tq (i) is the time elapsed since the packet is            all incoming packets at each satellite i ∈ S equals the number
+   ready to be transmitted until the beginning of its transmission.             of the sum of its outgoing packets. This does not apply
+   The transmission buffer at a satellite i has a length qi and                 to gateways, since they are source and destination; Eq.(4d)
+   follows a FIFO policy. Although we consider a transmission                   ensures that no packet flow can be routed from any node i ∈ N
+   from i to j, the rest of packets in the queue may have different             to itself (i.e., no store-and-forward).
+   destinations and therefore use different links from the set EiS                 The centralized P is NP-hard, as it can be formulated
+   and Eig , with different rates R(i, ·). The queue time is hence              as a Multi-Commodity Flow (MCF) problem [38], which is
+                       qi B
+   given by tq (i) = R(i,·)  where R(i, ·) is calculated from Eq.(1)            known to be NP-hard [39]. Specifically, P involves optimizing
+   and depends on the link used for the transmission of each                    multiple packet flows in a dynamic satellite network while
+   en-queued data packet ahead of p. Second, the transmission                   ensuring flow conservation and capacity constraints, making
+   time, which is the time it takes to transmit B bits at R(i, j)               it equivalent to MCF problems, which are often formulated as
+            B                                                                   mixed-integer linear programming problems. Moreover, it is
+   bps,          . Third, the propagation time, which is the time               impractical due to the amount of overhead required to collect
+         R(i, j)
+   it takes for the electromagnetic radiation to travel the distance            real-time information of the traffic and network status.
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                   9001
+
+
+
+                                                                                each time step t, an agent i observes a state Sti within S,
+                                                                                selects an action ait within A, gets the outcome reward rti
+                                                                                                                                              i
+                                                                                from the environment, and observes the new state St+1           after
+                                                                                                             i i
+                                                                                the state-action pair (St , at ).
+                                                                                   A space environment is often constrained by the computing,
+                                                                                communication and energy resources. It is therefore important
+                                                                                to limit the complexity of the DNN without jeopardizing
+                                                                                the performance, for which we carefully design the state
+                                                                                space as follows. The state space of agent i is defined as
+                                                                                S i : {Li , Ni }, where Li is the local information at i, and
+                                                                                Ni is the information shared by the two intra-plane and the
+                                                                                two inter-plane neighbours satellites to i. Specifically, Li is
+                                                                                the information of the packet p(d) destination d extracted
+                                                                                from the p(d)’s header, the link connectivity EiS , the current
+                                                                                coordinates, and the neighbours’ coordinates. Ni contains
+                                                                                information about the congestion level of the four buffers of
+                                                                                the first neighbours, parameterized through Cj,k as:
+   Fig. 2. Proposed learning framework.                                                                                                
+                                                                                                               ∗      ∗ log10 (qt + 1)
+                                                                                           Cj,k = max C , C ·                               ,     (5)
+                                                                                                                          log10 (q max )
+      Therefore, we choose a decentralized DRL-based routing                    where Cj,k is the encoded congestion value for the neighbour
+   policy that optimizes the expected return at each agent, as                  j’s queue k. C ∗ is the maximum value of the encoded
+   elaborated in Section III.                                                   congestion, q max is the queue size, and qt is the queue length
+                                                                                at time t. Each of the four neighbours transmits the congestion
+                     III. L EARNING F RAMEWORK                                  level of its four queues. Therefore, Ni is a vector of 16
+                                                                                values which makes it manageable for the DNN. If a link
+      The proposed learning framework is illustrated in Fig. 2.
+                                                                                to a neighbour is unavailable, then the congestion levels of all
+   Each satellite is a different agent that makes routing decisions
+                                                                                its queue lengths are set to infinite and its coordinates to 0. If
+   around the globe in a decentralized manner relying upon local
+                                                                                just a neighbour’s link is unavailable, then that queue length
+   observations. Agents operate in a time-varying environment
+                                                                                is set to infinity. Therefore, any observed state Sti by an agent
+   (Fig. 2a) where the local experience gathered at each time step
+                                                                                i is defined as a vector of 28 fields: 16 for the neighbours’
+   is stored as a tuple (Fig. 2b). The DRL process is structured
+                                                                                congestion queue levels, 8 for the neighbours’ coordinates, 2
+   into two phases. During the offline phase (Fig. 2c), a high
+                                                                                for the current satellite’s coordinates, and 2 for the packet
+   exploration rate is employed in the routing decisions, which
+                                                                                destination d connected satellite coordinates.
+   favours the long-term learning of the system over the short-
+                                                                                   The satellite’s absolute latitude and longitude are nor-
+   term. A global model gets the observed state and determines
+                                                                                malized by a granularity factor σ to fall within the range
+   the value of each state-action pair. Next, the experience tuples
+                                                                                [0◦ , 180◦ /σ] and [0◦ , 360◦ /σ] respectively. Meanwhile, the
+   of each agent are stored globally, such the global model can
+                                                                                coordinates of neighbouring and destination satellites are
+   learn from all them within a simulation. Subsequently, in the
+                                                                                encoded relative to the current satellite’s position, smoothly
+   online phase (Fig. 2d), the global model pre-trained in the
+                                                                                handling the discontinuity at the 180◦ latitude bound-
+   offline phase is uploaded on-board of each agent so now each
+                                                                                ary. This relative positioning yields a normalized range of
+   one has its own local model and buffer. This phase emphasizes
+                                                                                [−90◦ /σ, 90◦ /σ] for latitude and [−180◦ /σ, 180◦ /σ] for lon-
+   exploitation and now each agent keeps training its own model
+                                                                                gitude after applying the necessary shifts and scaling factors.
+   with its own local experiences.
+                                                                                Consequently, all fields in S are scaled uniformly, with conges-
+      The LSatC represents a networked multi-agent problem
+                                                                                tion levels and positional values maintaining a consistent range
+   where agents are partially connected and interact uniquely
+                                                                                for the DNN inputs. Our approach enhances the logical loca-
+   with nearby agents. In this model-free MA-DRL we aim
+                                                                                tion representation method described by [19] by incorporating
+   at a fully-decentralized solution where each satellite acts
+                                                                                dynamic queue behavior, which their model did not consider,
+   as an independent agent that learns its own routing policy.
+                                                                                and incorporating the exact satellite coordinates scaled, which
+   Since each agent has only local information of the observed
+                                                                                gives real-time positioning precision.
+   environment based on the local network state and the restricted
+                                                                                   Regarding the action, ait is the next hop j selected by agent
+   communication with their one-hop neighbouring satellites, the
+                                                                                i from the set EiS , i.e., one of the neighbouring satellites.
+   decision-making problem is based on a partially observable
+                                                                                An agent can also be connected to a gateway, however, if
+   state.
+                                                                                this is the destination d of a packet p(d) this will be directly
+      The problem is formulated as a POMDP with a 4-tuple
+                                                                                forwarded there without making any decision. Therefore, A
+   (S, A, P (s, a), R(s, a)), where S is the state space, A is the
+                                                                                has 4 possible options. Finally, the reward rti for the state-
+   action space, P (s, a) represents the probabilities of taking
+                                                                                action pair (Sti , ait ) at satellite i has three terms:
+   action a in state s, and R(s, a) denotes the corresponding
+   reward received. The time is discrete and starts at zero. For                                 rti = w1 · rq + w2 · rr + w3 · r? ,                  (6)
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9002                                                                        IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+   where w1 , w2 , w3 are weighting parameters, and the terms are               plus the discounted value of future rewards. Mathematically,
+   defined next. The first term is related to the time spent on the             the action-value function is updated recursively as follows
+   receiving agent j queue, specifically                                                                         Current estimate
+                                           tq (i)
+                                                                                                                 z }| {
+                              rq = 1 − 10           ,                    (7)          Qi (Sti , ait ) = (1 − α) Qi (Sti , ait )
+                                                                                                                   Updated estimate
+                                                                                                                                           
+   being tq (i) the time spent at the queue of the receiving agent.                                           z            }|            {
+   The inverse exponential behavior in Eq.(7) ensures that small                                        + α rti + γmax
+                                                                                                                                 i
+                                                                                                                            Qi (St+1 , ai ) ,
+                                                                                                                                           
+                                                                                                                                                    (11)
+                                                                                                                        ia
+   queue times have a more significant impact on the penalty,
+   while larger queue times are already sufficiently penalized.
+   The second term captures how good is the action in getting                   where max    i
+                                                                                          Q(St+1 , ai ) is the value of the best possible action
+                                                                                       i a
+   closer to the destination:
+                                                                                at the state the agent transits after ait was taken at its previous
+                              ||id|| − ||jd|| − ||ij||
+                                                 w4                             state-action pair; α is the learning rate; and the difference
+                       rr =                        ,               (8)          between the updated estimate and the current estimate is the
+                                    dmax
+   where the slant range reduction is ||id||−||jd||, and ||ij|| is the          TD error. During exploitation, the agent selects the action with
+   distance traveled by p(d) after being forwarded. The term w4                 the highest Q-value, aiming to maximize future rewards.
+   is a weighting factor ensuring a positive numerator, as there is
+   often a mismatch between slant ranges and physical distances                 A. MA-DRL: Algorithmic and Multi-Agent Interaction
+   following the orbital paths. Finally, this is normalized by dmax ,
+                                                                                   The need to build a Q-table with a Q-value for each
+   which is the maximum ISL distance between satellites in the
+                                                                                possible state-action pair limits the scalability to larger state
+   constellation. The last term is written
+                                                                                or action spaces. To address this, RL is extended to DRL [5],
+          r? = 1 ait = j ∧ j ∈ Pp · rl + 1 (d ∈ EG ) · rd
+                                     
+                                                                                where Q-functions are approximated using DNNs, enabling
+                   + 1 ait ∈                                                    agents to handle larger and more complex state spaces effi-
+                                  
+                            / EiS · ru ,                           (9)
+                                                                                ciently. In DRL, each agent i stores every experience tuple,
+   where 1(·) is the indicator function and ∧ is the logical                                               i
+                                                                                SARS : (Sti , ait , rti , St+1 ), for learning purposes. These
+   conjunction. This term r? includes extra penalties and rewards               experiences are then used to adjust the weights of the DNN
+   as follows: rl is a penalty applied when a packet p(d) revisits a            via Stochastic Gradient Descent (SGD). By continuously min-
+   node in order to avoid looping; rd is a reward added when the                imizing the difference between the predicted Q-values and the
+   agent has a GSL to the destination gateway; ru is a penalty                  received rewards and observed next state, SGD fine-tunes the
+   applied to the action that aims at forwarding p(d) through                   network’s weights, enhancing the policy’s performance over
+   an unavailable link. rd must be positive and higher than the                 time.
+   regular rewards, ensuring that delivering p(d) is the primary                   The innovative aspect of our proposed MA-DRL algorithm
+   objective for each agent. If rd is high, sending p(d) to agents              lies in observing the impact of an action ait from the per-
+   closer to d will be transformed into higher rewards due to the               spective of a packet p with destination d, p(d). When p(d)
+   higher implicit value of these agents. Meanwhile rl and ru                   is forwarded by an agent i to another agent j, it transits
+                                                                                                                          j
+   should be negative since they penalize undesired behaviors.                  from the state Sti observed in i to St+1      observed at j. This
+      In conventional Q-learning, the agent seeks the optimal                                                i i i      j
+                                                                                experience tuple SARS: (St , at , rt , St+1 ) with states observed
+   policy, which is the set of state-action pairs maximizing the                in the interacting agents is then stored in an experience buffer
+   long-term accumulated reward. This is a Temporal Difference                  D that is then used to train a DNN characterized by weights θ
+   (TD) learning in which the value estimates are updated incre-                that learn the optimal routing policy (Fig. 2b). The modified
+   mentally as the agent interacts with the environment without                 Q-Learning equation is described as follows:
+   waiting for a final outcome by bootstrapping. The goal of
+   the agent is to find the optimal policy πi∗ at each agent                          Qi (Sti , ait ) ← (1 − α)Qi (Sti , ait )
+                                                                                                                                             
+   i that maximizes the cumulative discounted reward. This is                                                                       j
+   expressed as:                                                                                       + α rti + γmax  j
+                                                                                                                           Q   i (St+1 , aj
+                                                                                                                                            )   ,   (12)
+                                                                                                                        a
+                        "∞                               #
+        ∗
+                          X
+                                k i      i        i    i                        where Qi (Sti , ait ) is the Q-value for the state-action pair at i
+       πi = argmax E          γ rt+k+1 |St = s, At = a ,       (10)                                                j
+                 πi    πi                                                       with weights θ, and max      Qi (St+1 , aj ) is the maximum value
+                            k=0                                                                            j
+                                                                                                           a
+   where 0 ≤ γ ≤ 1 is the discount factor adjusting the                         for every possible aj after observing Stj at j. The feedback
+   importance of future rewards and Eπi is the expected average                 needed by agents is minimal: First, the agent i needs its neigh-
+   value when adopting the policy πi . The state-action Q-value,                bouring agents congestion information in order to observe Sti .
+   Qi (Sti , ait ), represents the estimated value of taking action             This vector of 16 values that can be updated periodically. Then,
+   ait in state Sti at time t, i.e, the expected future cumulative              agent i needs the new state encountered at p(d)’s receiving
+   rewards. The agent updates the Q-values through exploration                  agent, j, and the time spent on its queue to compute rti . The
+                                                                                                                                  j
+   by learning from the TD error, which quantifies the error                    term giving this information, (rti + γmax   Qi (St+1 , aj )), can
+                                                                                                                        aj
+   between the current Q-value estimation and the new estimate                  be computed directly at j, which reduces this feedback to a
+   after the action ait is taken based on the received reward rti               number sent from j to i.
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                   9003
+
+
+
+   B. Loss Function and DDQN                                                    constellations are often launched in batches over time. For a
+      Experience tuples SARS are used to train a DNN called                     continual decentralized learning that adapts to such evolution,
+   the Q-Network Q(θ) with parameter weights θ. In DDQN, an                     we divide the learning into two phases, offline and online, as
+   additional Target Network Q(θ− ) is used to stabilize learning               presented next.
+   and address the overestimation bias in standard DQN [8]. By
+   doing this, DDQN minimizes the following loss function based                                         IV. O FFLINE P HASE
+   on the TD error, which measures the discrepancy between the                     The offline phase (Fig. 2c) initializes and trains a global
+   predicted Q-values and the target Q-values:                                  model with a diverse and extensive dataset. Once trained, its
+    L(θ)                                                                        knowledge can be transferred individually to each satellite in
+        
+                      Target Network
+                                                             2                the online phase (Fig. 2d). The global model is characterized
+                                               Q-Network
+                 z          }|           { z       }|       {                  by two DNNs, as in Section III-B: The global Q-Network,
+                             j      j −
+                                                                                Qg (θ), and the global Target Network, Qg (θ− ), with param-
+         i                                       i i
+     = E r  + γ max  Q   (S     , a ; θ ) − Q  (S  , a  ; θ) ,
+                                                              
+          t            i    t+1              i   t    t
+                   aj
+                                                                                eter weights θ and θ− randomly initialized. Both networks
+        
+                                                                                share an identical architecture. The input layer comprises 28
+                                                                       (13)
+                                                                                neurons, each one corresponding to a different field of the
+   where rti denotes the reward, γ is the discount factor, ait is the           observed state. Following the design in [41], there are 2 fully-
+   action taken at the observed state Sti by the sending agent i,               connected hidden layers, each with 32 neurons. The output
+     j
+   St+1  represents the next state observed at the receiving agent              layer consists of 4 neurons, with each neuron representing
+   j, θ are the parameters of the Q-Network, and θ− are the                     the value of one of the 4 possible actions. In order to collect
+   parameters of the Target Network. The key feature of DDQN                    the most diverse dataset, all the satellites around the globe
+   is the separation of the action selection and evaluation. The                store their experience tuples SARS in a global experience
+   action ait that maximizes the Q-value in the current state Sti               buffer Dg . The training process involves using the experience
+   is selected using the current Q(θ), but the evaluation of this               stored in Dg , applying SGD to minimize the loss function in
+   action’s Q-value is performed using Q(θ− ). SGD is applied to                Eq.(13), and updating gradually Qg (θ). Qg (θ− ) receives hard
+   adjust the parameters of the Q-Network, θ, by minimizing the                 updates periodically every T iterations. We use an ε-greedy
+   loss function defined in Eq.(13). The parameters of the Target               policy to balance exploration (i.e., select a random action)
+   Network θ− are updated less frequently than those of the Q-                  and exploitation (i.e., choose the action that maximizes the
+   Network to provide a stable target for the TD error calculation.             expected reward) through the probability ε. Specifically, the
+   The Target Network is updated through hard updates by                        exploration rate ε is given by:
+   copying Q-Network parameters at fixed time intervals.                                                                            κ· nt2
+                                                                                              ε(t) = εmin + (εmax − εmin ) · e          g    ,      (15)
+   C. Inference Computational Complexity                                        where εmax and εmin are the maximum and minimum values,
+      Energy consumption during inference is closely tied to the                respectively, κ is a factor to control the decay rate, ng is the
+   computational complexity of the neural network, measured in                  number of active gateways and t is the time index. ε decays
+   terms of Floating Point Operations (FLOP). The total number                  with time following a negative exponential behaviour. This
+   of FLOP per inference for a fully connected DNN of L layers                  decay is smoothed as more gateways are active since the agent
+   can be computed as follows:                                                  needs more time to learn more paths between gateways.
+                                   L                                               Upon the arrival of packet p with destination d at time t, the
+                                                                                global model gets the state Sti observed by agent i and chooses
+                                   X
+                 Total FLOP =            2 × Ni,in × Ni,out ,          (14)
+                                   i=1                                          an action ait to forward p(d) to one of the neighbours. The
+                                                                                                                                                j
+                                                                                reward rti is received, and the state encountered by p(d), St+1    ,
+   where Ni,in and Ni,out are the number of input and output
+                                                                                is observed by the receiving agent j. The tuple experience
+   neurons of each layer, respectively. In practice, hardware                                              j
+                                                                                SARS : (Sti , ait , rti , St+1 ) is stored at Dg . Notice that even
+   energy consumption per one FLOP can vary depending on the
+                                                                                when the global buffer stores experiences around the globe, the
+   architecture, but for a given device, the total energy consumed
+                                                                                routing decisions are decentralized, using only the local infor-
+   is approximately proportional to the number of FLOP executed
+                                                                                mation at the observed state. The decision-making mechanism
+   [40].
+                                                                                oscillates between leveraging Qg (θ) with the observed state to
+                                                                                predict action ait and adopting random action selection. This
+   D. MA-DRL Continual Learning                                                 exploration-exploitation trade-off is essential for optimizing
+      One key feature of the proposed MA-DRL routing is its                     the performance in the RL context. This approach enables the
+   adaptability to adapt to fluctuations in traffic patterns and                agent to adapt to novel scenarios, discovering not only the
+   unavailable links, by each agent observing its one-hop neigh-                optimal trajectory but also alternative routes. Initially, as the
+   bouring agents congestion and link state. For a complete                     exploration rate  is high and the DNNs’ parameters – θ and
+   solution, it is important to consider the long-term evolution of             θ− – are initialized randomly, the agent makes random routing
+   the system and non-stationarities due to, e.g., non-functional               actions. As time goes by, the agent learns and the exploration
+   nodes, traffic variations, or architectural changes. The latter is           rate decreases exponentially, favoring the exploitation strategy
+   important during the roll-out phase of these networks, as dense              over exploration. The implementation of the algorithmic of the
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9004                                                                       IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+   Algorithm 1 Offline phase                                                    A. Model Anticipation
+   Initialize: Initialize Q(θ), Q(θ− ) parameters randomly                         The model anticipation phase (Fig. 1a) leverages transfer
+   Initialize: Initialize memory buffer Dg                                      learning between agents without the need for a global or
+    1: for t = 1, 2, . . . , T do                                               cluster PS, and minimizes the communication overhead by
+    2:     Get next packet pp (d) ∈ P arriving at satellite i with              having model exchange only between pairs of satellites. In this
+           destination d                                                        option an agent i in an orbital plane o sends its Q-Network,
+    3:     Update ES and EG using the greedy matching                           Qi (θ), to the adjacent agent, i − 1, which is moving towards
+    4:     if d ∈ EG then                                                       i’s former position. I.e.,
+    5:        Deliver pp (d) to destination d
+              rti = w1 · rq + w2 · rr + w3 · r?                                                            1
+    6:                                                                                          Qi−1 (θ) ←   (Qi (θ) + Qi−1 (θ)) .         (16)
+    7:     else                                                                                            2
+    8:        Observe sate Sti                                                     This mechanism ensures that i − 1 inherits the learned
+    9:        if r ∼ U (0, 1) < ε(t) then                                       traffic flow patterns from i, eliminating the need for i − 1 to
+   10:            Select a random action ait                                    independently learn these patterns. This method speeds up the
+   11:        else                                                              learning process, as i does not need to wait to find a solution
+   12:            Select ait = maxai Q(Sti , ai ; θ)                            independently and improves learning efficiency by reducing
+   13:        end if                                                            the number of adjustments i − 1 must make to its local DNNs
+   14:        rti = w1 · rq + w2 · rr + w3 · r?                                 for an effective solution. The application of this method as
+                                                   j
+   15:        Store transition (Sti , ait , rti , St+1 ) in Dg                  the satellites move in the orbital plane allows the adaptation
+   16:        Perform SGD to minimize L(θ) with Eq.(13)                         to short-term changes in the environment. For example, for an
+   17:        Update θ as in Eq.(12)                                            orbital plane of period To and So satellites, the updates could
+   18:        if t %T == 0 then                                                 be done every To /(So · wu ) seconds, where wu is a weighting
+   19:            Update Target Network parameters: θ− ← θ                      factor that controls the update frequency depending on the
+   20:        end if                                                            changes of the environment. There is a trade-off between
+   21:     end if                                                               increasing local updates, which reduces signaling demands
+   22: end for                                                                  while making the adaptation to changes slower, and relying
+                                                                                on model updates received from neighbouring satellites, which
+                                                                                saves local computing and energy resources while adapting
+   offline exploitation phase is outlined in Algorithm 1. Notice                faster. In highly dynamic environments, this balance is crucial.
+   that the global experience buffer Dg is enriched through the
+   aggregation of experience data from each individual agent                    B. Cluster FL
+   around the globe. The resulting model is global in the sense
+   that it can be applied at any position and network congestion                   FL [4], as illustrated in Figs. 1b. and 1c, can be used to deal
+   condition, as it has learnt routing strategies for each situation            with the long-term divergence. We leverage the stability and
+   due to the exploration routing policy from the perspective of                higher bandwidth of intra-plane ISLs by defining the agents
+   every satellite. Then, it can be uploaded at each satellite-agent            within the same orbital plane o as a learning cluster Co . The PS
+   for the online phase.                                                        acts as the global update scheduler [42] that decides when and
+                                                                                how to execute a new round of communication for the updates.
+                                                                                In each communication round, each agent i within Co shares
+                            V. O NLINE P HASE                                   its own Q-Network, Qi (θ). This is sent to its neighbour agent
+                                                                                within Co , i + 1, which does the partial aggregation of the Q-
+      Once the global model is trained to route packets between
+                                                                                Networks, denoted as Q∗i (θ). This aggregation is forwarded to
+   gateways under different conditions in a decentralized way,
+                                                                                the next agent i + 2, and the recursive operation is repeated
+   the models are uploaded on-board of each satellite-agent and
+                                                                                until all the agents in the cluster have participated and the
+   the online phase starts. In this phase, each satellite i is an
+                                                                                Co ’s Qo (θ) is given by the total aggregation:
+   autonomous agent with its own Q-Network, Qi (θ) and Target
+   Network, (Qi (θ− )), whose parameter weights θ and θ− are                                                     X Q∗ (θ)
+                                                                                                                        i
+                                                                                                      Qo (θ) ←               ,                (17)
+   taken from the global model Q-Network Qg (θ) (Fig. 2d). The                                                         |Co |
+                                                                                                                   i∈Co
+   experience tuples SARS collected locally by each agent i are
+   stored in their respective buffer Di and used to keep training               where |Co | is the number of satellites in Co . Qo (θ) is then
+   their local model. As agents now train with local data and                   sent to the PS. For simplicity, we assume the PS to be located
+   learn region-specific traffic patterns, their knowledge begins               in a GEO satellite with continuous connectivity with at least
+   to diverge. This divergence requires further knowledge sharing               one satellite within each cluster. The impact of discontinous
+   among the moving agents to converge again to a global model.                 connectivity was studied in [4] and applicable to our problem.
+   We propose two strategies, one based on updates sharing                      The PS computes the global model Qg (θ) by aggregating
+   between the satellite and its first neighbour ahead (a.k.a. model            all the cluster models and distributes it back to the clusters.
+   anticipation) and the other one on cluster-based FL. In both                 This is done using Federated Averaging (FedAvg) [43]. The
+   cases, we aim at minimizing the overhead to the network by                   different agents’ models within a cluster are then updated
+   sharing local models to be aggregated.                                       synchronously using a cluster update scheduler, while the
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                   9005
+
+
+
+   different cluster models are updated synchronously using the                 inference. These metrics are the lower bound but, even it this
+   global update scheduler. This is an efficient way of keep                    increases 100x, it would be negligible. The Q-Network and
+   training the satellites together, converging to a cluster solution           Target Network, when saved in the HDF5 format, occupy
+   without sharing the training information and minimizing the                  approximately 57 KB and 27 KB due to additional overhead,
+   use of communication resources. Each satellite is updated with               respectively, having minimal impact on satellite hardware
+   the aggregated cluster model that adjusts very fast to changes               resources. Energy consumption and computing resources can
+   in the environment while saving energy as they agents learn                  be optimized by reusing previous routing decisions in stable
+   from other’s knowledge too, reducing the models divergence                   state spaces. Communication overhead can be reduced by
+   and required local training.                                                 updating each neighbour’s state only when this notifies the
+                                                                                change, instead of asking every time an action needs to be
+   C. Discussion on Continual Learning                                          taken. For example, when congestion levels (encoded as in
+                                                                                Eq.(5)) change or after maneuvering, since the movement
+      Coming back to Fig. 2, we conclude this section with
+                                                                                is predictable using orbital mechanics. Further discussion
+   insights of the practical use of the proposal, with the possibility
+                                                                                about the trade-off between energy consumption, computing
+   of combining cluster and global FL and model anticipation.
+                                                                                resources and communication overhead is discussed in V-A.
+   Initially, the ground offline learning parameterized in the
+   global Q-Network and Target Network ensures the establish-
+   ment of a robust starting model, crucial for the subsequent                                 VI. P ERFORMANCE E VALUATION
+   online learning phase. As the online phase starts each satellite             A. Platform and Setup
+   i in orbital plane o, now an autonomous agent equipped
+                                                                                   Results were obtained with the Python simulator described
+   with its own DNNs and Qi (θ) and Qi (θ− ), starts training
+                                                                                in [46] that we developed. This is open-source and currently
+   with local data. As the satellites move, they receive fre-
+                                                                                available on GitHub.1 The simulations were carried out with
+   quent periodic updates to be aggregated to the current model
+                                                                                the resources provided by the Picasso Supercomputer, part of
+   from the predecessor (model anticipation). In addition, FL
+                                                                                the Spanish Super-computing Network (RES) at the Super-
+   is applied at another periodicity: Cluster Co updates within
+                                                                                computing and Bioinformatics Center (SCBI) of the University
+   each orbital plane o are aggregated much less frequently,
+                                                                                of Málaga2 providing a total capacity of 344 nodes with 38808
+   and global updates across the entire constellation, needed for
+                                                                                cores between 2.10 GHz and 2.60 GHz and ∼175 TB of
+   homogenization, occur even less often. This hybrid hierarchi-
+                                                                                available RAM. Most of the simulations, however, can be
+   cal approach ensures that, while each satellite benefits from
+                                                                                reproduced on standard off-the-shelf computers.
+   localized learning adjustments, the overall network aligns to
+                                                                                   Our baseline scenario considers the Kepler constellation
+   broader non-stationarities, maintaining consistency and opti-
+                                                                                design, with M = 7 orbital planes at heights hm = 600 km
+   mizing network-wide performance. Moreover, FL and model
+                                                                                and Nm = 20 satellites per orbital plane, as illustrated in
+   anticipation do not negatively affect E2E latency, as it operates
+                                                                                Fig. 3a. Additionally, we consider three more constellations:
+   in parallel to routing and do not interfere with the real-time
+                                                                                (1) The Iridium Next constellation (Fig. 3b), with M = 6,
+   decision-making process of individual agents. The framework
+                                                                                hm = 780 km and Nm = 11; (2) the OneWeb constellation
+   makes each satellite both a contributor and beneficiary of a
+                                                                                (Fig. 3c), with M = 36, hm = 1200 km and Nm = 18; and
+   continually evolving knowledge base, while providing energy
+                                                                                (3) the Starlink orbital shell at hm = 550 km (Fig. 3d), with
+   efficiency and minimizing the use of computation and com-
+                                                                                M = 72 and Nm = 22. The three first constellations follow
+   munication resources, as each satellite has to process less data
+                                                                                a Walker star architecture, while the Starlink shell follows a
+   and share only the DNN’s weights.
+                                                                                Walker delta architecture [47]. Without loss of generality, there
+                                                                                are up to 8 transmitting and receiving gateways at ground
+   D. Scalability, Deployment and Efficiency                                    positions around the globe, mostly taken from the existing
+      This framework is particularly well-suited for large constel-             KSAT network (https://www.ksat.no/services/ground-station-
+   lations, as each satellite only requires local information and               services/). Specifically, we locate the gateways in Málaga
+   minimal feedback (as discussed in Section III-A) for making                  (Spain), Los Angeles (US), Port Louis (Mauritius), Vardø
+   routing decisions while learning locally. Furthermore, the local             (Norway), Nuuk (Greenland), Nemea (Greece), Azores (Portu-
+   model size is independent of the total number of satellites and              gal), and Bangalore (India). In the results, the simulator takes
+   gateways in the network, as the learnt information is encoded                the first |G| from the sorted list above. The communication
+   in the weights of the model, instead of on raw data.                         parameters used for the simulations are as follows. The trans-
+      In terms of practical deployment and energy efficiency,                   mission power is 10 W for the satellites and 20 W for the
+   the defined network architecture (fully connected, 28-32-32-                 gateways. The carrier frequencies are 20 GHz for downlink, 30
+   4) results in each DNN having 2116 trainable parameters,                     GHz for uplink, and 26 GHz for ISL. We consider parabolic
+   amounting to 8.27 KB of memory. The computational cost per                   antennas of diameter 33 cm at the gateways and of 26 cm
+   inference is 4096 FLOP, as derived in Eq.(14). If we account                 at the satellites. The system bandwidth for all the links is
+   the 5.44 TFLOPs and 124.16 GFLOPs/W achieved with the
+                                                                                  1 https://www.github.com/SatCom-TELMA/MA-DRL Routing Simulator
+   Versal AI Engine array [44], applicable for space applications                 2 The authors thankfully acknowledges the computer resources, technical
+   [45], this would correspond to an inference time of around                   expertise and assistance provided by the SCBI center of the University of
+   0.753 nanoseconds and an energy cost of 33 nanojoules per                    Malaga (www.scbi.uma.es)”.
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9006                                                                           IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+
+   Fig. 3. Representation of the four tested constellations and their corresponding ISLs. Each colour is a different orbital plane.
+
+
+
+   W = 500MHz. The packet length is B = 64.8kbits, as defined                       C. Offline Phase
+   for DVB-S2. Unless otherwise indicated, the traffic load is set
+                                                                                       We consider 2 transmitting and receiving gateways at
+   to ` = 1. In the observed state, the granularity factor is set
+                                                                                    Málaga and Los Angeles. We evaluate the behaviour of the
+   to σ = 20, resulting in neighbours and destination relative
+                                                                                    four described constellations – Kepler, Iridium, OneWeb, and
+   latitudes and longitudes falling within the ranges [−4.5, 4.5]
+                                                                                    Starlink. Fig. 4 shows the results, specifically the average E2E
+   and [−9, 9], respectively. The encoded congestion values Cj,k
+                                                                                    latency versus the packet arrival time in the left-axis, and the
+   are defined to be within the range [0, 10].
+                                                                                    exploration rate versus packet arrival time in the right-axis. We
+                                                                                    compare the two learning solutions, MA-DRL and Q-routing
+                                                                                    [1], with the Shortest path. The latter has no convergence
+   B. Benchmarks
+                                                                                    or exploration, and in this evaluation without congestion
+      We compare MA-DRL to a source routing approach that                           its horizontal asymptote represents the optimal, genie-aided
+   uses Dijkstra’s algorithm [36] to find the Shortest path to                      solution aiming at choosing the path with the highest data rate.
+   the destination. Specifically, the weights of the edges are set                  During the exploration phase, the global model Q-Network,
+   to be the inverse of the data rate, wi,j = 1/R(i, j). Notice                     Qg (θ), and target-Network, Qg (θ− ), weights, θ and θ− , are
+   that the Shortest path algorithm has real time information                       initialized randomly, as well as the Q-Tables for the Q-
+   about all the LSatC (e.g., full knowledge), and represents the                   routing. Coupled with a high exploration rate ε, the global
+   optimal, genie-aided solution if the network has no congestion.                  model initially tends to make random routing actions at each
+   In practice, it is impossible to have real time information about                satellite. This behaviour disappears as ε decreases: The global
+   the whole LSatC (links and buffer status) due to the overhead                    model learns first sub-optimal paths and then converges to the
+   caused by feedback messages and the inherent propagation                         Shortest path. This behavior emerges as a consequence of the
+   times delays. We also compare the MA-DRL to the Q-routing                        global model’s optimization process, aimed at maximizing its
+   algorithm developed in our previous work [1], where Q-Tables                     reward acquisition. The convergence time of MA-DRL and Q-
+   are used for routing instead of DNNs. It is important to                         routing are similar in all cases. For the Kepler and OneWeb
+   emphasize that the Q-learning method uses Q-Tables for the                       constellations, convergence occurs within 2 seconds, whereas
+   routing in front of DNNs used in MA-DRL, without positional                      Iridium Next and Starlink have 4 and 1 seconds, respectively.
+   data and reduced queue details. As this paper focuses on the                     The reason for this behavior is that Iridium Next has the least
+   practical implementability and long-life viability of routing in                 number of satellites and, therefore, the length of the paths
+   scenarios with partial knowledge and limited resources, rather                   and the amount of routing decisions per packet are lesser
+   than the specific choice of DRL technique, the comparison                        than for the other constellations. Because of this, the global
+   with the optimal Shortest path serves as a clear and relevant                    model gathers less experience for each routed packet. On
+   baseline.                                                                        the other hand, the fastest convergence is with the densest
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                           9007
+
+
+
+
+   Fig. 4. E2E latency and exploration rate versus time during the offline phase with 2 active gateways.
+
+
+
+
+   Fig. 5. Offline phase throughput with 2 active gateways (8141 packets) in the Kepler constellation. (a) Average throughput versus time (right-axis) and average
+   E2E latency (left-axis). (b) Empirical throughput Cumulative Distribution Function (CDF). Only delivered packets are counted, however, this is equivalent to
+   the total traffic in long term since no packets are lost.
+
+
+   constellation, Starlink, as it collects the most experience per
+   routed packet. Fig. 5 shows the average throughput during
+   the learning phase, which is equal to the injected traffic as
+   there are no packet losses. Initially, as the network is still
+   learning, packets experience delays in reaching the destination,
+   resulting in very low downlink throughput. This is followed
+   by a surge, as many packets arrive simultaneously, causing a
+   peak in downlink throughput. Once the network has stabilized,
+   the downlink throughput aligns closely with the uplink, with
+   a small gap due to packet latency E2E. When the capacity is
+   not exceeded, throughput in stable systems is equal to load in
+   both learning and inference.                                                     Fig. 6. Rewards vs. time of offline phase. 8 active gateways.
+      We then test the scenario with 8 active gateways injecting
+   traffic into the network, resulting in a total of 8 · (8 − 1) =
+   56 unidirectional paths and ` = 0.5. Notice that this is                            The algorithm’s learning convergence is shown in Fig. 6,
+   the only simulation where we set ` 6= 1, to make the                             where reward values are successfully maximized and stabilized
+   network work at medium load. We do it for the Kepler                             as packets are delivered successfully and better decisions are
+   constellation.                                                                   taken, indicating stable convergence over time. The latency
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9008                                                                            IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+
+   Fig. 7. Results with 8 active gateways. (a) Offline phase: Global average E2E latency and its variance versus time (left-axis) and exploration rate (right-axis).
+   The fainter lines represent the E2E latency for individual paths between gateways. (b) Online phase: Empirical CDF of the latency.
+
+
+
+
+   Fig. 8. Heat map of the preferred paths with |G| = 8 and two policies: (a) Shortest path; (b) MA-DRL. The 100% traffic load is given by the maximum
+   number of packets that went through a single GSL.
+
+
+
+   results are shown in Fig. 7a. The global model learns how to
+   route packets in a decentralized way from 8 active gateways,
+   each one sending packets to each other gateway through the
+   LSatC. MA-DRL has been trained for 4 seconds in the offline
+   phase, as shown in Fig. 7a, where it can be appreciated how the
+   algorithm, from scratch and concurrently, finds paths between
+   gateways, reducing the E2E latency between them optimizing
+   the received rewards.
+
+
+   D. Online Phase
+      The results of the offline phase (Fig. 7a) are two trained                     Fig. 9. Average E2E latency over a complete orbital period of 96 minutes.
+   DNNs: The global Q-Network Qg (θ) and the global Target                           Satellite positions were updated every 15 seconds.
+   Network Qg (θ− ), both with 2116 trained parameters. These
+   models are now uploaded on-board of each satellite. Fig. 7b
+                                                                                     the preferred paths. The Shortest path algorithm calculates
+   shows a comparison of the empirical CDF of the E2E latency
+                                                                                     fixed paths which are concentrated in a part of the graph,
+   of the packets when the routing is done following the Shortest
+                                                                                     while a considerable portion of the constellation supports
+   path policy, with full knowledge of the constellation, versus
+                                                                                     none or little traffic. MA-DRL considers the queue congestion
+   when the routing is done decentralized with local information,
+                                                                                     and exploits alternative paths with longer distances but less
+   following the trained Qi (θ) routing policy at each agent i. It
+                                                                                     congested queues as the load increases.
+   can be appreciated that the latency is very similar, i.e., the
+   routes followed by the decentralized solution approximate the
+   centralized approach with full knowledge of the constellation.                    E. Movement
+   Specifically, the 50th percentile gap is only 1.7 ms, whereas                        Next, we analyze the impact of the movement in the online
+   the 90th percentile gap is 3 ms, and the 95th percentile                          phase. We consider 2 gateways and observe that the agents
+   is 9.1 ms.                                                                        still find the optimal path, as shown in Fig. 9, without needing
+      Fig. 8 shows a heat map of MA-DRL and Shortest path                            further exploration and having the same latency as the Shortest
+   with 8 gateways. The relative traffic load is represented to see                  path (which has real-time information of the full constellation)
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                        9009
+
+
+
+
+   Fig. 10. CKA computed values in different scenarios. (a) No aggregation since agents have not shared their models. (b) Model anticipation where agents
+   have shared their model with their neighbour behind. (c) Aggregation done at orbital plane level, i.e., all agents within the same orbital plane have shared
+   their models and updated them (Satellite Federated Learning (SFL)). (d) Aggregation done at constellation level, i.e., all the models have been shared and
+   distributed by the orchestrator (SFL).
+
+
+
+   most of the time. This adaptability comes from the fact that the
+   global model, during the offline phase, has trained with local
+   data with positional and congestion information in the state
+   space, which makes its knowledge suitable for every agent at
+   any position. During the online phase, each agent has on-board
+   a copy of the trained DNNs from the global model. This allows
+   them to adapt well to different observed states at different
+   positions and congestion scenarios. On the other hand, the
+   Q-routing algorithm needs to converge again and finds a sub-
+   optimal route since it has no positional information and must
+   go over the exploration phase every time the topology changes.
+
+                                                                                  Fig. 11. CKA CDF for the scenarios presented in Fig. 10.
+   F. Continual Learning
+     Fig. 10 motivates the need for continual learning and
+   knowledge sharing, and demonstrates the performance of the
+   proposed methods. We choose Centered Kernel Alignment                          (CKA) as a similarity metric widely used to quantify the
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9010                                                                          IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+
+   Fig. 12. Performance of the system under drastic traffic changes with the different aggregation techniques.
+
+
+
+   divergence among models for diverse reasons. Given two sets                       Finally, Fig. 12 illustrates an ablation study and stress test
+   of representations X = x1 , . . . , xn and Y = y1 , . . . , yn                 to the model alignment options when the traffic conditions
+   (models in our case), and assuming these representations are                   change drastically and the constellation moves. The network
+   centered, the CKA between X and Y is given by [48]                             has initially traffic from two gateways located in Los Angeles
+                                                                                  and Málaga, and it is trained for that. Consequently, the
+                                      tr(XX T ) · tr(Y Y T )
+                 CKA(X, Y ) =                                             (18)    model learns mainly horizontal paths that connect nodes
+                                     ||XX T ||F · ||Y Y T ||F                     across similar latitudes. Then, we add traffic from a third
+   where tr(A) denotes the trace of matrix A, XX T is the Gram                    gateway in Mauritius, which represents a significant latitude
+   matrix of X and analogously for Y, and || · ||F denotes the                    variation, posing a new routing challenge for the network. In
+   Frobenius norm. A CKA value of 1 indicates perfect alignment                   this experiment, Model Anticipation (orange), Orbital Plane
+   between the representations, while a value closer to 0 indicates               Aggregation (green), and Full Aggregation (red) are each
+   less alignment. Fig. 10a shows in a matrix form the value                      performed every 200 ms, while the hybrid aggregation (purple)
+   of CKA between each pair of satellites i, j in the Kepler                      executes one of these methods sequentially every 100 ms,
+   constellation with 8 gateways. For this comparison, a realistic                cycling them in turn. The consequent alignment of the models
+   dataset was generated and input into each DNN to evaluate                      periodically over the time is shown in Fig. 12a, where it
+   their behavior. After just one second, the average CKA value                   can also be appreciated how models diverge with time when
+   is 0.8. In this simulation, as the traffic load is set to ` = 1, the           no aggregation is done (blue). Regarding the E2E latency, it
+   network gets congested, and the increased queuing delay is                     is observed in Fig. 12b that, without alignment, the model
+   the reason behind the divergence in the models: As satellites                  struggles in handling the latitude-based routing required by the
+   observe a congested state and experience longer delays in                      new traffic condition. The model anticipation and SFL within
+   the predefined paths, they try with alternatives that incur in                 the orbital plane improve the performance but they are not
+   longer propagation delays but lower buffering. The diagonal                    sufficient, as the new traffic is injected in another orbital plane
+   corresponds to i, i and therefore CKA(x, x) = 1. However, it                   (although they are competitive in changes within the orbital
+   is observed that many other pairs have diverged significantly,                 plane). The full constellation aggregation method SFL adapts
+   with values as low as 0.3. The areas with less divergence                      faster to the new traffic, while the hybrid integration of all
+   correspond to the areas far from the gateways with paths                       approaches achieves the highest overall performance. Thus,
+   that are never or rarely selected. With model anticipation,                    the 95th percentile difference is 42 ms between the hybrid
+   the alignment increases as shown in Fig. 10b. The satellites                   and Full Aggregation modes, and 375 ms between the hybrid
+   send their Q-Networks to the successors and this results in a                  aggregation and without alignment.
+   higher value of CKA, with an average improvement of 9.9%.
+   However, a level of misalignment is still kept and therefore                                             VII. C ONCLUSION
+   it is necessary to have a global update at the cluster and                        The proposed MA-DRL for packet routing in LSatCs is
+   network level. This is the result in Fig. 10c, with an average                 a simple solution that has demonstrated promising results
+   improvement of 22%. Specifically, we show the first step                       in terms of efficient learning, as it quickly converges to an
+   of cluster aggregation, demonstrating that after one round of                  optimal routing policy with minimal local status information
+   cluster communication the models are aligned at the cluster                    at every hop, showcasing the effectiveness of the decentralized
+   level. The second step is to aggregate all the cluster and reach               DNN-based approach. Notably, regarding adaptability, MA-
+   CKA(i, j) = 1 ∀i, j, as shown in Fig. 10d, with the remaining                  DRL has not only learned the optimal path but also a set of
+   average improvement of 24,6% that results in the perfect                       alternative paths during the offline phase. This aspect is crucial
+   alignment. Fig. 11 summarizes the results of the distribution of               in highly loaded LSatCs where the queuing delay becomes
+   the CKA, showing that the initial model divergence is reduced                  critical. Thus, the agents, being aware of their neighbours’
+   with the model anticipation and fully achieved with FL.                        congestion status, can seamlessly switch to these alternative
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   LOZANO-CUADRA et al.: CONTINUAL DEEP REINFORCEMENT LEARNING FOR DECENTRALIZED SATELLITE ROUTING                                                                  9011
+
+
+
+   paths. Moreover, the online phase addresses a practical yet                         [21] C. E. Perkins and P. Bhagwat, “Highly dynamic destination-sequenced
+   overlooked problem: The need for continual learning as the                               distance-vector routing (DSDV) for mobile computers,” ACM SIG-
+                                                                                            COMM Comput. Commun. Rev., vol. 24, no. 4, pp. 234–244, Oct. 1994.
+   environment evolves and the local models uploaded at each                           [22] C. Perkins, E. Belding-Royer, and S. Das, “Ad hoc on-demand distance
+   agent start diverging. Our approach, with a short- and a long-                           vector (AODV) routing,” Internet Eng. Task Force (IETF), Mountain
+   term aggregation, reduces the disalignment at different scales,                          View, CA, USA, Tech. Rep. RFC 3561, 2003.
+                                                                                       [23] J. Li, H. Lu, K. Xue, and Y. Zhang, “Temporal netgrid model-based
+   providing the flexibility needed for a practical implementation                          dynamic routing in large-scale small satellite networks,” IEEE Trans.
+   that adapts to the specific needs of a space system.                                     Veh. Technol., vol. 68, no. 6, pp. 6009–6021, Jun. 2019.
+      Future work includes enabling direct UE-Satellite-UE links,                      [24] J. A. Boyan and M. L. Littman, “Packet routing in dynamically changing
+                                                                                            networks: A reinforcement learning approach,” in Proc. Adv. Neural Inf.
+   integrating routing with flow congestion and load balancing,                             Process. Syst., vol. 6, Nov. 1993, pp. 671–678.
+   and the protocol definition of the alignment process.                               [25] Y. Huang et al., “Reinforcement learning based dynamic distributed
+                                                                                            routing scheme for mega LEO satellite networks,” Chin. J. Aeronaut.,
+                                                                                            vol. 36, no. 2, pp. 284–291, 2023.
+                                  R EFERENCES                                          [26] J. Liu, B. Zhao, Q. Xin, J. Su, and W. Ou, “DRL-ER: An intelligent
+                                                                                            energy-aware routing protocol with guaranteed delay bounds in satel-
+   [1]  B. Soret, I. Leyva-Mayorga, F. Lozano-Cuadra, and M. D. Thorsager,                  lite mega-constellations,” IEEE Trans. Netw. Sci. Eng., vol. 8, no. 4,
+        “Q-learning for distributed routing in LEO satellite constellations,” in            pp. 2872–2884, Oct. 2021.
+        Proc. IEEE Int. Conf. Mach. Learn. Commun. Netw. (ICMLCN), May                 [27] W. Wei et al., “Iris: Toward intelligent reliable routing for software-
+        2024, pp. 208–213.                                                                  defined satellite networks,” IEEE Trans. Commun., vol. 73, no. 1,
+   [2] J. W. Rabjerg, I. Leyva-Mayorga, B. Soret, and P. Popovski, “Exploiting              pp. 454–468, Jan. 2025.
+        topology awareness for routing in LEO satellite constellations,” in Proc.      [28] G. Xu, Y. Zhao, Y. Ran, R. Zhao, and J. Luo, “Spatial location
+        IEEE Global Commun. Conf. (GLOBECOM), Dec. 2021, pp. 1–6.                           aided fully-distributed dynamic routing for large-scale LEO satellite
+   [3] F. Lozano-Cuadra and B. Soret, “Multi-agent deep reinforcement learn-                networks,” IEEE Commun. Lett., vol. 26, no. 12, pp. 3034–3038, Dec.
+        ing for distributed satellite routing,” 2024, arXiv:2402.17666.                     2022.
+   [4] B. Matthiesen, N. Razmi, I. Leyva-Mayorga, A. Dekorsy, and                      [29] Y. Lyu, H. Hu, R. Fan, Z. Liu, J. An, and S. Mao, “Dynamic routing
+        P. Popovski, “Federated learning in satellite constellations,” IEEE Netw.,          for integrated satellite-terrestrial networks: A constrained multi-agent
+        vol. 38, no. 2, pp. 1–16, Mar. 2024.                                                reinforcement learning approach,” IEEE J. Sel. Areas Commun., vol. 42,
+   [5] R. S. Sutton and A. G. Barto, Reinforcement Learning: An Introduction.               no. 5, pp. 1204–1218, May 2024.
+        Cambridge, MA, USA: MIT Press, 2018.                                           [30] D. Liu, J. Zhang, J. Cui, S.-X. Ng, R. G. Maunder, and L. Hanzo, “Deep
+   [6] K. Arulkumaran, M. P. Deisenroth, M. Brundage, and A. A. Bharath,                    learning aided routing for space-air-ground integrated networks relying
+        “Deep reinforcement learning: A brief survey,” IEEE Signal Process.                 on real satellite, flight, and shipping data,” IEEE Wireless Commun.,
+        Mag., vol. 34, no. 6, pp. 26–38, Nov. 2017.                                         vol. 29, no. 2, pp. 177–184, Apr. 2022.
+   [7] H. V. Hasselt, “Double Q-learning,” in Proc. Adv. Neural Inf. Process.          [31] J. Song et al., “Trustworthy and load-balancing routing scheme for
+        Syst., vol. 23, Dec. 2010, pp. 2613–2621.                                           satellite services with multi-agent DRL,” in Proc. IEEE INFOCOM -
+   [8] H. V. Hasselt, A. Guez, and D. Silver, “Deep reinforcement learning                  IEEE Conf. Comput. Commun. Workshops (INFOCOM WKSHPS), May
+        with double Q-learning,” in Proc. AAAI Conf. Artif. Intell., Feb. 2016,             2023, pp. 1–6.
+        vol. 30, no. 1, pp. 2094–2100.                                                 [32] H. Zhang et al., “Heterogeneous mean-field multi-agent reinforcement
+   [9] Z. Zhu, K. Lin, A. K. Jain, and J. Zhou, “Transfer learning in deep                  learning for communication routing selection in SAGI-net,” in Proc.
+        reinforcement learning: A survey,” IEEE Trans. Pattern Anal. Mach.                  IEEE 96th Veh. Technol. Conf. (VTC-Fall), Sep. 2022, pp. 1–5.
+        Intell., vol. 45, no. 11, pp. 1–20, Nov. 2023.                                 [33] Y. Ran, Y. Ding, S. Chen, J. Lei, and J. Luo, “Fully-distributed dynamic
+   [10] Q. Li et al., “A survey on federated learning systems: Vision, hype and             packet routing for LEO satellite networks: A GNN-enhanced multi-agent
+        reality for data privacy and protection,” IEEE Trans. Knowl. Data Eng.,             reinforcement learning approach,” IEEE Trans. Veh. Technol., vol. 74,
+        vol. 35, no. 4, pp. 3347–3366, Apr. 2023.                                           no. 3, pp. 5229–5234, Mar. 2025.
+   [11] Q. Yang, Y. Liu, T. Chen, and Y. Tong, “Federated machine learning:            [34] Y. Li, Q. Zhang, H. Yao, R. Gao, X. Xin, and F. Richard Yu, “Stigmergy
+        Concept and applications,” ACM Trans. Intell. Syst. Technol., vol. 10,              and hierarchical learning for routing optimization in multi-domain
+        no. 2, pp. 1–19, 2019.                                                              collaborative satellite networks,” IEEE J. Sel. Areas Commun., vol. 42,
+   [12] N. Razmi, B. Matthiesen, A. Dekorsy, and P. Popovski, “On-board                     no. 5, pp. 1188–1203, May 2024.
+        federated learning for satellite clusters with inter-satellite links,” 2023,   [35] G. Wang, F. Yang, J. Song, and Z. Han, “Dynamic laser inter-satellite
+        arXiv:2307.08346.                                                                   link scheduling based on federated reinforcement learning: An asyn-
+   [13] L. Wang, X. Zhang, H. Su, and J. Zhu, “A comprehensive survey                       chronous hierarchical architecture,” IEEE Trans. Wireless Commun.,
+        of continual learning: Theory, method and application,” IEEE Trans.                 vol. 23, no. 10, pp. 14273–14288, Oct. 2024.
+        Pattern Anal. Mach. Intell., vol. 46, no. 8, pp. 5362–5383, Aug. 2024.         [36] E. W. Dijkstra, “A note on two problems in connexion with graphs,”
+   [14] K. Khetarpal, M. Riemer, I. Rish, and D. Precup, “Towards con-                      Numerische Math., vol. 1, no. 1, pp. 269–271, Dec. 1959.
+        tinual reinforcement learning: A review and perspectives,” 2020,               [37] I. Leyva-Mayorga, B. Soret, and P. Popovski, “Inter-plane inter-satellite
+        arXiv:2012.13490.                                                                   connectivity in dense LEO constellations,” IEEE Trans. Wireless Com-
+   [15] H. Sun, W. Pu, X. Fu, T. Chang, and M. Hong, “Learning to con-                      mun., vol. 20, no. 6, pp. 3430–3443, Jun. 2021.
+        tinuously optimize wireless resource in a dynamic environment: A               [38] P. Grislain et al., “Rethinking LEO constellations routing,” Int. J. Satell.
+        bilevel optimization perspective,” IEEE Trans. Signal Process., vol. 70,            Commun. Netw., Apr. 2024, doi: 10.1002/sat.1514.
+        pp. 1900–1917, 2022.                                                           [39] S. Even, A. Itai, and A. Shamir, “On the complexity of time table and
+   [16] M. Akrout, A. Feriani, F. Bellili, A. Mezghani, and E. Hossain,                     multi-commodity flow problems,” in Proc. 16th Annu. Symp. Found.
+        “Continual learning-based MIMO channel estimation: A benchmarking                   Comput. Sci. (SFCS), Oct. 1975, pp. 184–193.
+        study,” 2022, arXiv:2211.10753.                                                [40] I. Leyva-Mayorga et al., “Satellite edge computing for real-time and
+   [17] Q. Xiaogang, M. Jiulong, W. Dan, L. Lifang, and H. Shaolin, “A survey               very-high resolution Earth observation,” IEEE Trans. Commun., vol. 71,
+        of routing techniques for satellite networks,” J. Commun. Inf. Netw.,               no. 10, pp. 6180–6194, Oct. 2023.
+        vol. 1, no. 4, pp. 66–85, Dec. 2016.                                           [41] V. Mnih et al., “Playing Atari with deep reinforcement learning,” 2013,
+   [18] M. Jia, S. Zhu, L. Wang, Q. Guo, H. Wang, and Z. Liu, “Routing                      arXiv:1312.5602.
+        algorithm with virtual topology toward to huge numbers of LEO mobile           [42] N. Razmi, B. Matthiesen, A. Dekorsy, and P. Popovski, “Scheduling
+        satellite network based on SDN,” Mobile Netw. Appl., vol. 23, no. 2,                for on-board federated learning with satellite clusters,” 2024,
+        pp. 285–300, Apr. 2018.                                                             arXiv:2402.09105.
+   [19] E. Ekici, I. F. Akyildiz, and M. D. Bender, “A distributed routing             [43] B. McMahan, E. Moore, D. Ramage, S. Hampson, and B. A. Y. Arcas,
+        algorithm for datagram traffic in LEO satellite networks,” IEEE/ACM                 “Communication-efficient learning of deep networks from decentralized
+        Trans. Netw., vol. 9, no. 2, pp. 137–147, Apr. 2001.                                data,” in Proc. 20th Int. Conf. Artif. Intell. Statist., 2017, pp. 1273–1282.
+   [20] M. M. H. Roth, “Analyzing source-routed approaches for low Earth               [44] E. Taka, A. Arora, K.-C. Wu, and D. Marculescu, “MaxEVA: Maximiz-
+        orbit satellite constellation networks,” in Proc. 1st ACM Workshop LEO              ing the efficiency of matrix multiplication on versal AI engine,” in Proc.
+        Netw. Commun., Oct. 2023, pp. 43–48.                                                Int. Conf. Field Program. Technol. (ICFPT), Dec. 2023, pp. 96–105.
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+   9012                                                                             IEEE TRANSACTIONS ON COMMUNICATIONS, VOL. 73, NO. 10, OCTOBER 2025
+
+
+
+   [45] F. Ortiz et al., “Onboard processing in satellite communications using                                Israel Leyva-Mayorga (Member, IEEE) received
+        AI accelerators,” Aerospace, vol. 10, no. 2, p. 101, Jan. 2023.                                       the B.Sc. degree in telematics engineering and the
+   [46] F. Lozano-Cuadra, M. D. Thorsager, I. Leyva-Mayorga, and B. Soret,                                    M.Sc. degree (Hons.) in mobile computing systems
+        “An open source multi-agent deep reinforcement learning routing sim-                                  from the Instituto Politécnico Nacional (IPN), Mex-
+        ulator for satellite networks,” 2024, arXiv:2407.11047.                                               ico, in 2012 and 2014, respectively, and the Ph.D.
+   [47] I. Leyva-Mayorga et al., “NGSO constellation design for global                                        degree (cum laude) in telecommunications from the
+        connectivity,” in Non-Geostationary Satellite Communications Systems,                                 Universitat Politècnica de València (UPV), Spain, in
+        E. Lagunas, S. Chatzinotas, K. An, and B. F. Beidas, Eds., Hertfordshire,                             2018. He was a Visiting Researcher with the Depart-
+        U.K.: IET, Jul. 2022, ch. 10.                                                                         ment of Communications, UPV, in 2014, and the
+   [48] S. Kornblith, M. Norouzi, H. Lee, and G. Hinton, “Similarity of neural                                Deutsche Telekom Chair of the Communication Net-
+        network representations revisited,” in Proc. Int. Conf. Mach. Learn.,                                 works, Technische Universität Dresden, Germany,
+        2019, pp. 3519–3529.                                                         in 2018. He is currently an Associate Professor with the Connectivity
+                                                                                     Section (CNT), Department of Electronic Systems, Aalborg University (AAU),
+                                                                                     Denmark, where he was a Post-Doctoral Researcher from January 2019 to July
+                                                                                     2021. His research interests include beyond-5G and 6G networks, satellite
+                                                                                     communications, and random and multiple access protocols. He was a recipi-
+                           Federico Lozano-Cuadra received the B.Sc. and             ent of the Novo Nordisk Foundation Prize for Excellence in Technical Science
+                           M.Sc. degrees in telecommunication engineering            Teaching 2025, a Board Member of one6G, and a representative of AAU in
+                           from the University of Málaga (UMA), Spain, in           6G IA. He is an Associate Editor of IEEE W IRELESS C OMMUNICATIONS
+                           2021 and 2023, respectively, where he is currently        L ETTERS.
+                           pursuing the Ph.D. degree with the SatCom Group,
+                           where he was awarded a fellowship by Spanish
+                           Government. His research focuses on machine learn-
+                           ing for space networks, including collaboration with
+                           ESA through the SatNEx V initiative at the SatCom
+                           Group, UMA. He carried out the M.Sc. thesis at                                      Petar Popovski (Fellow, IEEE) received the Dipl.-
+                           German Aerospace Center (DLR). He was awarded                                       Ing. and M.Sc. degrees in communication engineer-
+   the IMFAHE Fellowship and the Fulbright Scholarship to conduct two                                          ing from the University of Ss. Cyril and Methodius
+   research stays at NASA JPL in 2025 and 2026, respectively. In parallel, he                                  (UKIM), Skopje, North Macedonia, in 1997 and
+   founded a tech education startup in 2022, that has engaged more than 1000                                   2000, respectively, and the Ph.D. degree from Aal-
+   students.                                                                                                   borg University, Aalborg, Denmark, in 2005. He is
+                                                                                                               currently a Professor with Aalborg University, where
+                                                                                                               he heads the Section on Connectivity and the Visit-
+                                                                                                               ing Excellence Chair of the University of Bremen,
+                                                                                                               Bremen, Germany. He authored the book “Wireless
+                                                                                                               Connectivity: An Intuitive and Fundamental Guide.”
+                         Beatriz Soret (Senior Member, IEEE) received the            His research interests include wireless communication and communication
+                         M.Sc. and Ph.D. degrees in telecommunications               theory. He was a recipient of the ERC Consolidator Grant in 2015, the Danish
+                         from the University of Málaga, Spain, in 2002 and          Elite Researcher Award in 2016, the IEEE Fred W. Ellersick Prize in 2016, the
+                         2010, respectively. She has held industrial positions       IEEE Stephen O. Rice Prize in 2018, the Technical Achievement Award from
+                         at Nokia Bell Labs and GomSpace. She is currently           the IEEE Technical Committee on Smart Grid Communications in 2019, the
+                         a Senior Research Fellow with the Telecommunica-            Danish Telecommunication Prize in 2020, and the Villum Investigator Grant
+                         tions Research Institute, University of Málaga. Her        in 2021. He was the Chair of the IEEE Communication Theory Technical
+                         current research interests include resource allocation      Committee from 2022 to 2024, a Member at Large at the Board of Governors
+                         and networking in LEO satellite communications              in IEEE Communication Society from 2019 to 2021, and the General Chair of
+                         and semantic and goal-oriented communications.              the IEEE SmartGridComm 2018 and IEEE Communication Theory Workshop
+                         She received the Best Paper Award from IEEE                 2019. He is also the Editor-in-Chief of IEEE J OURNAL ON S ELECTED A REAS
+   Globecom in 2013 and the Beatriz Galindo Senior Grant in Spain in 2020.           IN C OMMUNICATIONS .
+
+
+
+
+Authorized licensed use limited to: BEIJING UNIVERSITY OF POST AND TELECOM. Downloaded on June 01,2026 at 09:42:52 UTC from IEEE Xplore. Restrictions apply.
+

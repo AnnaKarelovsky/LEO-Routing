@@ -91,9 +91,9 @@ plotSatID   = True      # If True, plots the ID of each satellite
 plotAllThro = True      # If True, it plots throughput plots for each single path between gateways. If False, it plots a single figure for overall Throughput
 plotAllCon  = True      # If True, it plots congestion maps for each single path between gateways. If False, it plots a single figure for overall congestion
 
-movementTime= 10        # Every movementTime seconds, the satellites positions are updated and the graph is built again
+movementTime= 3        # Every movementTime seconds, the satellites positions are updated and the graph is built again
                         # If do not want the constellation to move, set this parameter to a bigger number than the simulation time
-ndeltas     = 5805.44/20#1 Movement speedup factor. Every movementTime sats will move movementTime*ndeltas space. If bigger, will make the rotation distance bigger
+ndeltas     = 5805.44/10#1 Movement speedup factor. Every movementTime sats will move movementTime*ndeltas space. If bigger, will make the rotation distance bigger
 
 Train       = True      # Global for all scenarios with different number of GTs. if set to false, the model will not train any of them
 explore     = True      # If True, makes random actions eventually, if false only exploitation
@@ -106,12 +106,12 @@ else:
     FL_Test = False
 
 w1          = 20        # rewards the getting to empty queues
-w2          = 20        # rewards getting closes phisycally   
+w2          = 20        # rewards getting closes physically   
 w4          = 5         # Normalization for the distance reward, for the traveled distance factor 
 
 gamma       = 0.99       # greedy factor. Smaller -> Greedy. Optimized params: 0.6 for Q-Learning, 0.99 for Deep Q-Learning
 
-GTs = [2]               # number of gateways to be tested
+GTs = [4]               # number of gateways to be tested
 # Gateways are taken from https://www.ksat.no/ground-network-services/the-ksat-global-ground-station-network/ (Except for Malaga and Aalborg)
 # GTs = [i for i in range(2,9)] # This is to make a sweep where scenarios with all the gateways in the range are considered
 

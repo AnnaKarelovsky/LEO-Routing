@@ -389,7 +389,7 @@ p
 (f,B_p,t_p^0,w_p),
 $$
 
-其中 \(g_f,d_f\in\mathcal{G}\) 为源网关和目的网关，\(\mathcal{P}_f\) 为任务的语义单元集合，\(\tau_f\) 为任务截止时间，\(\beta_f\) 为超时衰减系数，\(S_f^{\min}\) 为最低任务语义保真度，\(t_p^0<\tau_f\) 为语义单元生成时间。\(w_p\in[0,1]\) 表示语义单元 \(p\) 对任务恢复质量的边际语义贡献，并满足
+其中 \(g_f,d_f\in\mathcal{G}\) 为源网关和目的网关，\(\mathcal{P}_f\) 为任务的语义单元集合，\(\tau_f>0\) 为任务允许的最大端到端时延，\(\beta_f\) 为超时衰减系数，\(S_f^{\min}\) 为最低任务语义保真度，\(t_p^0\) 为语义单元生成时刻。\(w_p\in[0,1]\) 表示语义单元 \(p\) 对任务恢复质量的边际语义贡献，并满足
 
 $$
 \sum_{p\in\mathcal{P}_f}w_p=1.
@@ -436,10 +436,22 @@ w_p
 \min
 \left\{
 1,
-\frac{[t-t_p^0]^+}{\tau_f-t_p^0}
+\frac{[t-t_p^0]^+}{\tau_f}
 \right\}
 \right].
 $$
+
+相应地，语义单元 \(p\) 在时刻 \(t\) 的剩余时延预算为
+
+$$
+\Delta_p(t)
+=
+\left[
+\tau_f-(t-t_p^0)
+\right]^+.
+$$
+
+在 \(t=t_p^0\) 时，\(\Psi_p(t)=w_p\) 且 \(\Delta_p(t)=\tau_f\)；等待时间达到或超过 \(\tau_f\) 后，\(\Psi_p(t)\) 截断为 \(2w_p\)，剩余时延预算降为 0。二者作为调度状态特征，不替代最终的及时语义效用。
 
 语义单元 \(p\) 在情形 \(r\) 下的期望及时语义效用统一定义为
 
@@ -573,34 +585,231 @@ $$
 
 ## H. 集中式上层与分布式下层接口
 
-慢时标上层在每个结构周期执行一次集中决策。其状态 \(s_k^{\mathrm{H}}\) 包括基础拓扑、候选 E-OISL、汇总队列、汇总语义压力以及上一周期链路配置；动作和周期奖励分别为
+令 \(t_k=kT_s\) 表示结构周期 \(k\) 的起始时刻。慢时标上层在每个结构周期执行一次集中决策。首先定义基础 ISL 邻接矩阵、基础 ISL 速率矩阵、GSL 接入矩阵和上一周期 E-OISL 配置矩阵：
 
 $$
-a_k^{\mathrm{H}}
+\mathbf{B}_k
 =
-\mathbf{x}_k\in\mathcal{X}_k,
+\left[b_{ij,k}\right]_{|\mathcal{S}|\times|\mathcal{S}|},
 \quad
-r_k^{\mathrm{H}}
+\mathbf{R}^{\mathrm{B}}_k
+=
+\left[R^{\mathrm{B}}_{ij,k}\right]_{|\mathcal{S}|\times|\mathcal{S}|},
+\quad
+\mathbf{Z}_k
+=
+\left[z_{gi,k}\right]_{|\mathcal{G}|\times|\mathcal{S}|},
+\quad
+\mathbf{X}_{k-1}
+=
+\left[x_{ij,k-1}\right]_{|\mathcal{S}|\times|\mathcal{S}|}.
+$$
+
+对任意卫星对 \(i<j\)，定义候选 E-OISL 特征
+
+$$
+\widehat{T}_{ij,k}^{\mathrm{ready}}
+=
+T_{ij,k}^{\mathrm{ready}}
+\big|_{\ell_i(k)=j,\ \ell_j(k)=i},
+\quad
+\{i,j\}\in\mathcal E_k^{\mathrm C},
+\quad
+\mathbf{f}_{ij,k}^{\mathrm C}
+=
+\begin{cases}
+\left(
+\chi^{\mathrm I}_{ij,k},
+R^{\mathrm E}_{ij,k},
+\frac{\widehat{T}_{ij,k}^{\mathrm{ready}}}{T_s}
+\right),
+&
+\{i,j\}\in\mathcal E_k^{\mathrm C},\\[2mm]
+\mathbf 0,
+&
+\{i,j\}\notin\mathcal E_k^{\mathrm C},
+\end{cases}
+\quad
+\mathbf{F}^{\mathrm C}_k
+=
+\left\{
+\mathbf{f}_{ij,k}^{\mathrm C}
+\right\}_{i<j}.
+$$
+
+对候选卫星对，\(\widehat{T}_{ij,k}^{\mathrm{ready}}\) 表示假设本周期选择 \(\{i,j\}\) 时，按照 D 节终端迁移模型计算的链路就绪时间；非候选卫星对的特征置零。因此 \(\mathbf F_k^{\mathrm C}\) 是固定维度的候选特征张量，同时包含可行性、光链路速率和归一化 PAT 重构代价。
+
+令 \(\mathcal P_{i,g}(t_k)\) 表示在 \(t_k\) 时刻缓存于卫星 \(i\)、尚待转发且目的网关为 \(g\) 的语义单元集合。按卫星和目的网关汇总的待传数据量及平均语义压力定义为
+
+$$
+\overline Q_{ig,k}^{\mathrm H}
+=
+\sum_{p\in\mathcal P_{i,g}(t_k)}
+B_p,
+\qquad
+\overline\Psi_{ig,k}^{\mathrm H}
+=
+\begin{cases}
+\displaystyle
+\frac{
+\sum_{p\in\mathcal P_{i,g}(t_k)}
+B_p\Psi_p(t_k)
+}{
+\overline Q_{ig,k}^{\mathrm H}
+},
+&
+\overline Q_{ig,k}^{\mathrm H}>0,\\[3mm]
+0,
+&
+\overline Q_{ig,k}^{\mathrm H}=0.
+\end{cases}
+$$
+
+记 \(\overline{\mathbf Q}_k^{\mathrm H}=[\overline Q_{ig,k}^{\mathrm H}]\) 和 \(\overline{\boldsymbol\Psi}_k^{\mathrm H}=[\overline\Psi_{ig,k}^{\mathrm H}]\)，二者的维度均为 \(|\mathcal S|\times|\mathcal G|\)。上层状态、动作和周期奖励正式定义为
+
+$$
+s_k^{\mathrm H}
+=
+\left(
+\mathbf B_k,
+\mathbf R_k^{\mathrm B},
+\mathbf Z_k,
+\mathbf F_k^{\mathrm C},
+\overline{\mathbf Q}_k^{\mathrm H},
+\overline{\boldsymbol\Psi}_k^{\mathrm H},
+\mathbf X_{k-1}
+\right),
+\quad
+a_k^{\mathrm H}
+=
+\mathbf x_k\in\mathcal X_k,
+\quad
+r_k^{\mathrm H}
 =
 \mathrm{STEE}_k.
 $$
 
-上层动作在整个 \(T_s\) 内保持不变。组合动作的编码方式和上层策略网络类型属于算法设计，将在算法章节中确定。
+目的网关条件汇总使上层能够区分数据量相同但流向不同的业务。上层动作在整个 \(T_s\) 内保持不变。连续特征的归一化、组合动作的编码方式和上层策略网络类型属于算法设计，将在算法章节中确定。
 
 给定 \(\mathbf{x}_k\)，各卫星基于本地观测执行分布式 DDQN 逐跳路由。每颗卫星在快时标上最多具有五个星间转发端口。令 \(e_i^d(k)\) 表示端口 \(d\) 在周期 \(k\) 对应的出向链路，则卫星 \(i\) 的可用动作集合为
+
+$$
+\mathcal D
+=
+\left\{
+\mathrm U,\mathrm D,\mathrm L,\mathrm R,\mathrm E
+\right\},
+\quad
+j_i^d(k)
+\in
+\mathcal S\cup\{\varnothing\},
+\quad
+e_i^d(k)
+=
+\begin{cases}
+\left(i,j_i^d(k)\right),
+&
+j_i^d(k)\ne\varnothing,\\
+\varnothing,
+&
+j_i^d(k)=\varnothing,
+\end{cases}
+\quad
+m_{i,d,k}
+=
+\mathbf 1
+\left\{
+e_i^d(k)\in\mathcal E_k^{\mathrm{act},\mathrm E}
+\right\}.
+$$
+
+其中 \(j_i^d(k)\) 为端口 \(d\) 当前连接的邻居；端口未连接时 \(j_i^d(k)=\varnothing\)，\(m_{i,d,k}=0\)。相应的可用动作集合为
 
 $$
 \mathcal{A}_{i,k}
 =
 \left\{
-d\in
-\{\mathrm{U},\mathrm{D},\mathrm{L},\mathrm{R},\mathrm{E}\}
+d\in\mathcal D
 \ \middle|\
-e_i^d(k)\in\mathcal{E}^{\mathrm{act},\mathrm{E}}_k
+m_{i,d,k}=1
 \right\}.
 $$
 
 其中 \(\mathrm{U},\mathrm{D},\mathrm{L},\mathrm{R}\) 对应四个基础 ISL 端口，\(\mathrm{E}\) 对应当前激活的 E-OISL 端口。不可用端口通过 action mask 屏蔽；当卫星与目的网关直接连接时，语义单元通过 GSL 下行。下层观测仅包含本地邻接关系、链路与队列状态、目的节点和当前语义时效压力。
+
+为刻画一跳下游拥塞，令 \(Q_{ij}(t)\) 表示快时标时刻 \(t\) 链路 \((i,j)\) 的当前出向队列数据量，并令 \(Q_{ij,k}=Q_{ij}(t_k)\)。卫星 \(j\) 向一跳邻居广播的归一化出向队列向量定义为
+
+$$
+\left[
+\mathbf q_j(t)
+\right]_{d'}
+=
+\begin{cases}
+\displaystyle
+\frac{
+Q_{j,j_j^{d'}(k)}(t)
+}{
+Q_{j,j_j^{d'}(k)}^{\max}
+},
+&
+m_{j,d',k}=1,\\[3mm]
+0,
+&
+m_{j,d',k}=0,
+\end{cases}
+\quad
+d'\in\mathcal D.
+$$
+
+定义相对位置向量 \(\boldsymbol\rho_{ij,k}=\mathbf r_j(k)-\mathbf r_i(k)\)。对于可用端口 \(d\) 及其邻居 \(j=j_i^d(k)\)，端口特征由 action mask、链路质量、本地出向队列、邻居队列和相对位置组成：
+
+$$
+\boldsymbol\phi_{i,d}(t)
+=
+\begin{cases}
+\left(
+m_{i,d,k},
+C^{\mathrm E}_{ij,k},
+\varepsilon^{\mathrm{bit},\mathrm E}_{ij,k},
+d_{ij,k},
+\dfrac{Q_{ij}(t)}{Q_{ij}^{\max}},
+\mathbf q_j(t),
+\boldsymbol\rho_{ij,k}
+\right),
+&
+m_{i,d,k}=1,\\[3mm]
+\mathbf 0,
+&
+m_{i,d,k}=0.
+\end{cases}
+$$
+
+由网关接入约束可知，目的网关 \(d_f\) 在周期 \(k\) 唯一接入一颗卫星。记该卫星为 \(i_f^{\mathrm{dst}}(k)\)，即 \(z_{d_f,i_f^{\mathrm{dst}}(k),k}=1\)。语义单元特征和卫星 \(i\) 针对语义单元 \(p\) 的局部观测分别定义为
+
+$$
+\boldsymbol\sigma_p(t)
+=
+\left(
+B_p,
+w_p,
+\beta_f,
+\frac{\Delta_p(t)}{\tau_f},
+\Psi_p(t)
+\right),
+\quad
+o_{i,p}^{\mathrm L}(t)
+=
+\left(
+\mathbf r_i(k),
+\boldsymbol\rho_{i,i_f^{\mathrm{dst}}(k),k},
+\left\{
+\boldsymbol\phi_{i,d}(t)
+\right\}_{d\in\mathcal D},
+\boldsymbol\sigma_p(t)
+\right).
+$$
+
+该观测只依赖卫星自身信息、可由一跳邻居交换的信息和当前语义单元属性，不包含全网瞬时状态。各连续特征在送入 DDQN 前的数值归一化方式属于算法实现，不在系统模型中固定。
 
 令 \(T_p^{\mathrm{real}}\) 表示一次传输中的实际端到端时延，\(\mathsf{Succ}_p\in\{0,1\}\) 表示实际交付结果，则语义单元的终止回报定义为
 
